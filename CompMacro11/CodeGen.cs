@@ -89,7 +89,7 @@ namespace CompMacro11
             "cls", "init", "pause",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "circle", "print", "printnum", "getTimer"
+            "point", "line", "circle", "print", "printnum", "getTimer"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -160,6 +160,7 @@ namespace CompMacro11
                 "RTCLRT","RTCLR",
                 "RTMCLR","RTMC1","RTMCPY","RTCP1",
                 "RTPTBL","RPTL1","RPTL2","RPTL3","RTPPNT","RPPNR",
+                "RTLINE","RTLCK1","RTLCK2","RTLCK3","RTLCK4","RTLNA","RTLNB","RTLNC","RTLND","RTLNE","RTLNF","RTLNG","RTLNL","RTLNX",
                 "RTCRC","RCRC1","RCRC1A","RCRC2","RCRC3","RCRC9",
                 "XWRD","CM0","CM1","CM2","CM3","CTAB",
                 "DSPST","KBDRT","KBDLT","KBDUP","KBDDN" })
@@ -774,6 +775,123 @@ namespace CompMacro11
             E("        MOV\tR3, @#176640");    // адрес снова
             E("        MOV\tR1, @#176642");    // записать
             E("RPPNR:  MOV\t(SP)+, R3");      // единый эпилог (нормальный + out-of-bounds)
+            E("        MOV\t(SP)+, R2");
+            E("        MOV\t(SP)+, R1");
+            E("        MOV\t(SP)+, R0");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
+
+            // ── RTLINE: линия Брезенхэма ──────────────────────────
+            E("; RTLINE — line(x0,y0,x1,y1,color)");
+            E(";   4.(R5)=x0  6.(R5)=y0  8.(R5)=x1  10.(R5)=y1  12.(R5)=color");
+            E("; Точно по bresenham_fast: e2=err<<1 (ASL), без умножения");
+            E("; Cohen-Sutherland тривиальный reject: обе точки за одной границей → выход");
+            E("RTLINE:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\tR0, -(SP)");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\tR2, -(SP)");
+            E("        MOV\tR3, -(SP)");
+            // ── Тривиальный reject (Cohen-Sutherland) ────────────
+            // Оба x < 0?
+            E("        TST\t4.(R5)");             // x0 < 0?
+            E("        BPL\tRTLCK1");
+            E("        TST\t8.(R5)");             // x1 < 0?
+            E("        BMI\tRTLNX");              // оба левее — выход
+            E("RTLCK1:");
+            // Оба x >= 320?
+            E("        CMP\t4.(R5), #320.");      // x0 >= 320?
+            E("        BLT\tRTLCK2");
+            E("        CMP\t8.(R5), #320.");      // x1 >= 320?
+            E("        BGE\tRTLNX");              // оба правее — выход
+            E("RTLCK2:");
+            // Оба y < 0?
+            E("        TST\t6.(R5)");             // y0 < 0?
+            E("        BPL\tRTLCK3");
+            E("        TST\t10.(R5)");            // y1 < 0?
+            E("        BMI\tRTLNX");              // оба выше — выход
+            E("RTLCK3:");
+            // Оба y >= 264?
+            E("        CMP\t6.(R5), #264.");      // y0 >= 264?
+            E("        BLT\tRTLCK4");
+            E("        CMP\t10.(R5), #264.");     // y1 >= 264?
+            E("        BGE\tRTLNX");              // оба ниже — выход
+            E("RTLCK4:");
+            // ── Брезенхэм ────────────────────────────────────────
+            E("        SUB\t#8., SP");            // резервируем: dx dy sx sy
+            // SP+0=sy SP+2=sx SP+4=dy SP+6=dx
+            E("        MOV\t4.(R5), R0");         // x = x0
+            E("        MOV\t6.(R5), R1");         // y = y0
+            // dx = abs(x1-x0)
+            E("        MOV\t8.(R5), R3");
+            E("        SUB\tR0, R3");            // R3 = x1-x0
+            E("        BGE\tRTLNA");
+            E("        NEG\tR3");
+            E("RTLNA:  MOV\tR3, 6.(SP)");       // dx
+            // dy = abs(y1-y0)
+            E("        MOV\t10.(R5), R3");
+            E("        SUB\tR1, R3");            // R3 = y1-y0
+            E("        BGE\tRTLNB");
+            E("        NEG\tR3");
+            E("RTLNB:  MOV\tR3, 4.(SP)");       // dy
+            // sx = (x0<x1) ? 1 : -1
+            E("        MOV\t#1., R3");
+            E("        CMP\tR0, 8.(R5)");        // x0 < x1?
+            E("        BLT\tRTLNC");
+            E("        NEG\tR3");
+            E("RTLNC:  MOV\tR3, 2.(SP)");       // sx
+            // sy = (y0<y1) ? 1 : -1
+            E("        MOV\t#1., R3");
+            E("        CMP\tR1, 10.(R5)");       // y0 < y1?
+            E("        BLT\tRTLND");
+            E("        NEG\tR3");
+            E("RTLND:  MOV\tR3, 0.(SP)");       // sy
+            // err = dx - dy
+            E("        MOV\t6.(SP), R2");        // R2 = dx
+            E("        SUB\t4.(SP), R2");        // R2 = err = dx-dy
+            // LOOP
+            E("RTLNL:");
+            // plot(x, y, color)
+            E("        MOV\t12.(R5), R3");       // color
+            E("        MOV\tR3, -(SP)");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\tR0, -(SP)");
+            E("        JSR\tPC, RTPPNT");
+            E("        ADD\t#6., SP");
+            // if x==x1 && y==y1: break
+            E("        CMP\tR0, 8.(R5)");
+            E("        BNE\tRTLNE");
+            E("        CMP\tR1, 10.(R5)");
+            E("        BEQ\tRTLNX");
+            E("RTLNE:");
+            // e2 = err << 1  (R3 = e2)
+            E("        MOV\tR2, R3");
+            E("        ASL\tR3");                // R3 = e2
+            // if e2 > -dy: err -= dy; x += sx
+            E("        MOV\t4.(SP), R3");        // сохраним dy временно... нет
+            // Пересчитаем: R3 = e2
+            E("        MOV\tR2, R3");
+            E("        ASL\tR3");                // R3 = e2
+            // neg_dy в temp
+            E("        MOV\t4.(SP), -(SP)");     // push dy
+            E("        NEG\t(SP)");              // (SP) = -dy
+            E("        CMP\tR3, (SP)+");         // e2 > -dy?  (pop)
+            E("        BLE\tRTLNF");
+            E("        SUB\t4.(SP), R2");        // err -= dy  (4.(SP) теперь dy после pop)
+            E("        ADD\t2.(SP), R0");        // x += sx
+            E("RTLNF:");
+            // if e2 < dx: err += dx; y += sy
+            E("        CMP\tR3, 6.(SP)");        // e2 < dx?
+            E("        BGE\tRTLNG");
+            E("        ADD\t6.(SP), R2");        // err += dx
+            E("        ADD\t0.(SP), R1");        // y += sy
+            E("RTLNG:");
+            E("        BR\tRTLNL");
+            E("RTLNX:");                         // эпилог
+            E("        ADD\t#8., SP");            // убрать dx dy sx sy
+            E("        MOV\t(SP)+, R3");
             E("        MOV\t(SP)+, R2");
             E("        MOV\t(SP)+, R1");
             E("        MOV\t(SP)+, R0");
@@ -2954,6 +3072,19 @@ namespace CompMacro11
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
                     EI("JSR", "PC, RTPPNT");
                     EI("ADD", "#6., SP");
+                    break;
+
+                case "line":
+                    if (c.Args.Count != 5)
+                        throw new Exception($"Строка {c.Line}: line(x0,y0,x1,y1,color) требует 5 аргументов");
+                    EC($"line({ArgStr(c)}): линия Брезенхэма");
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // color
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // y1
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // x1
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y0
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x0
+                    EI("JSR", "PC, RTLINE");
+                    EI("ADD", "#10., SP");
                     break;
 
                 case "waitkey":
