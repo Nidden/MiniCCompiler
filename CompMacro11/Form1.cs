@@ -124,6 +124,8 @@ namespace CompMacro11
         {
             InitializeComponent();
             BuildUI();
+            // Загружаем путь к эмулятору из окружения этой машины
+            _emulatorPath = AppEnvironment.EmulatorPath;
         }
 
         private void BuildUI()
@@ -604,8 +606,11 @@ namespace CompMacro11
         //   Запускаем Run.bat       
         private void RunInEmulator()
         {
-            // 1. Найти UKNCBTL.exe
+            // 1. Найти UKNCBTL.exe — сначала из окружения машины
             string emulPath = _emulatorPath;
+            if (string.IsNullOrEmpty(emulPath))
+                emulPath = AppEnvironment.EmulatorPath;
+
             if (string.IsNullOrEmpty(emulPath) || !System.IO.File.Exists(emulPath))
             {
                 string here = System.IO.Path.GetDirectoryName(
@@ -625,7 +630,9 @@ namespace CompMacro11
                         emulPath = dlg.FileName;
                     }
                 }
+                // Сохраняем в окружение — больше не спрашиваем
                 _emulatorPath = emulPath;
+                AppEnvironment.EmulatorPath = emulPath;
             }
             string workDir = System.IO.Path.GetDirectoryName(emulPath);
 
@@ -638,10 +645,10 @@ namespace CompMacro11
             string runbat = System.IO.Path.Combine(workDir, "Run.bat");
             RunProcess(runbat, "", workDir, out string macroOut);
 
-           
+
         }
 
-     
+
 
         private bool RunProcess(string exe, string args, string workDir, out string output)
         {
