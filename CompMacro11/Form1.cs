@@ -119,6 +119,7 @@ namespace CompMacro11
         private System.Windows.Forms.Timer _hlTimer;
         private SpriteEditor _spriteEditor;
         private string _emulatorPath = "";   // путь к UKNCBTL.exe
+        private McProject _project = null;   // текущий проект
 
         public Form1()
         {
@@ -226,10 +227,48 @@ namespace CompMacro11
             };
             bar.SizeChanged += (_, __) =>
             {
-                _status.Width = bar.Width - 730;
-                _status.Location = new Point(725, 7);
+                _status.Width = bar.Width - 845;
+                _status.Location = new Point(840, 7);
             };
-            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, btnCopy, btnRun, btnHelp, btnSprites, _status });
+
+            // ── Меню Проект ───────────────────────────────────────
+            var btnProject = MakeBtn("📁 Проект ▾", 110, Color.FromArgb(40, 70, 40), 717);
+            btnProject.Click += (_, __) =>
+            {
+                var menu = new ContextMenuStrip();
+                menu.BackColor = Color.FromArgb(45, 45, 48);
+                menu.ForeColor = Color.White;
+
+                var miNew = new ToolStripMenuItem("Новый проект...");
+                var miOpen = new ToolStripMenuItem("Открыть проект...");
+                var miSave = new ToolStripMenuItem("Сохранить проект") { Enabled = _project != null };
+                var miSaveAs = new ToolStripMenuItem("Сохранить как...") { Enabled = _project != null };
+                var miClose = new ToolStripMenuItem("Закрыть проект") { Enabled = _project != null };
+                var miRecent = new ToolStripMenuItem("Последние проекты");
+
+                var recent = RecentProjects.Load();
+                if (recent.Count == 0)
+                    miRecent.DropDownItems.Add(new ToolStripMenuItem("(пусто)") { Enabled = false });
+                else
+                    foreach (var r in recent)
+                    {
+                        string rr = r;
+                        var mi = new ToolStripMenuItem(System.IO.Path.GetFileNameWithoutExtension(rr));
+                        mi.Click += (s2, e2) => ProjectOpen(rr);
+                        miRecent.DropDownItems.Add(mi);
+                    }
+
+                miNew.Click += (s2, e2) => ProjectNew();
+                miOpen.Click += (s2, e2) => ProjectOpenDialog();
+                miSave.Click += (s2, e2) => ProjectSave();
+                miSaveAs.Click += (s2, e2) => ProjectSaveAs();
+                miClose.Click += (s2, e2) => ProjectClose();
+
+                menu.Items.AddRange(new ToolStripItem[] { miNew, miOpen, new ToolStripSeparator(), miSave, miSaveAs, miClose, new ToolStripSeparator(), miRecent });
+                menu.Show(btnProject, new System.Drawing.Point(0, btnProject.Height));
+            };
+
+            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, btnCopy, btnRun, btnHelp, btnSprites, btnProject, _status });
 
             // ── Заголовки ─────────────────────────────────────────
             var hdr = new Panel
@@ -1065,5 +1104,115 @@ int main(void) {
 
     return 0;
 }";
+    
+
+    // ── Методы работы с проектом ──────────────────────────────────
+
+    private void ProjectNew()
+        {
+            if (!ProjectCheckSave()) return;
+            var dlg = new NewProjectDialog();
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            if (string.IsNullOrWhiteSpace(dlg.ProjectName)) return;
+            try
+            {
+                _project = McProject.CreateNew(dlg.ProjectName, dlg.ProjectFolder);
+                RecentProjects.Add(_project.ProjectPath);
+                AppEnvironment.LastProjectPath = _project.ProjectPath;
+                _src.Text = _project.ReadMainCode();
+                UpdateTitle();
+                SetStatus("✓ Проект создан: " + _project.Name, false);
+            }
+            catch (Exception ex) { MessageBox.Show("Ошибка создания проекта:\n" + ex.Message); }
+        }
+
+        private void ProjectOpenDialog()
+        {
+            if (!ProjectCheckSave()) return;
+            var dlg = new OpenFileDialog
+            {
+                Title = "Открыть проект",
+                Filter = "Проект Mini-C (*.pkc)|*.pkc",
+                DefaultExt = "pkc"
+            };
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+                ProjectOpen(dlg.FileName);
+        }
+
+        private void ProjectOpen(string path)
+        {
+            if (!ProjectCheckSave()) return;
+            try
+            {
+                _project = McProject.Load(path);
+                RecentProjects.Add(path);
+                AppEnvironment.LastProjectPath = path;
+                _src.Text = _project.ReadMainCode();
+                UpdateTitle();
+                SetStatus("✓ Открыт: " + _project.Name, false);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка открытия проекта:\n" + ex.Message);
+                RecentProjects.Remove(path);
+            }
+        }
+
+        private void ProjectSave()
+        {
+            if (_project == null) return;
+            _project.WriteMainCode(_src.Text);
+            _project.Save();
+            UpdateTitle();
+            SetStatus("✓ Сохранено", false);
+        }
+
+        private void ProjectSaveAs()
+        {
+            if (_project == null) return;
+            var dlg = new SaveFileDialog
+            {
+                Title = "Сохранить проект как",
+                Filter = "Проект Mini-C (*.pkc)|*.pkc",
+                DefaultExt = "pkc",
+                FileName = _project.Name + ".pkc"
+            };
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                _project.WriteMainCode(_src.Text);
+                _project.SaveAs(dlg.FileName);
+                RecentProjects.Add(dlg.FileName);
+                AppEnvironment.LastProjectPath = dlg.FileName;
+                UpdateTitle();
+                SetStatus("✓ Сохранено как: " + dlg.FileName, false);
+            }
+        }
+
+        private void ProjectClose()
+        {
+            if (!ProjectCheckSave()) return;
+            _project = null;
+            UpdateTitle();
+            SetStatus("Проект закрыт", false);
+        }
+
+        private bool ProjectCheckSave()
+        {
+            if (_project == null || !_project.IsModified) return true;
+            var r = MessageBox.Show(
+                "Проект \"" + _project.Name + "\" изменён. Сохранить?",
+                "Сохранить проект?",
+                MessageBoxButtons.YesNoCancel);
+            if (r == DialogResult.Cancel) return false;
+            if (r == DialogResult.Yes) ProjectSave();
+            return true;
+        }
+
+        private void UpdateTitle()
+        {
+            Text = _project != null
+                ? "Mini-C → Macro-11  |  " + _project.Name
+                : "Mini-C → Macro-11";
+        }
     }
 }
