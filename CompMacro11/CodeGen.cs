@@ -89,7 +89,7 @@ namespace CompMacro11
             "cls", "init", "pause",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "circle", "print", "printnum", "getTimer"
+            "point", "line", "rect", "circle", "print", "printnum", "getTimer"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -161,6 +161,7 @@ namespace CompMacro11
                 "RTMCLR","RTMC1","RTMCPY","RTCP1",
                 "RTPTBL","RPTL1","RPTL2","RPTL3","RTPPNT","RPPNR",
                 "RTLINE","RTLCK1","RTLCK2","RTLCK3","RTLCK4","RTLNA","RTLNB","RTLNC","RTLND","RTLNE","RTLNF","RTLNG","RTLNL","RTLNX",
+                "RTRECT",
                 "RTCRC","RCRC1","RCRC1A","RCRC2","RCRC3","RCRC9",
                 "XWRD","CM0","CM1","CM2","CM3","CTAB",
                 "DSPST","KBDRT","KBDLT","KBDUP","KBDDN" })
@@ -891,6 +892,66 @@ namespace CompMacro11
             E("        BR\tRTLNL");
             E("RTLNX:");                         // эпилог
             E("        ADD\t#8., SP");            // убрать dx dy sx sy
+            E("        MOV\t(SP)+, R3");
+            E("        MOV\t(SP)+, R2");
+            E("        MOV\t(SP)+, R1");
+            E("        MOV\t(SP)+, R0");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
+
+            // ── RTRECT: прямоугольник (контур) ───────────────────
+            E("; RTRECT — rect(x,y,w,h,color)");
+            E(";   4.(R5)=x  6.(R5)=y  8.(R5)=w  10.(R5)=h  12.(R5)=color");
+            E("; Рисуем 4 стороны через RTLINE");
+            E("; x2=x+w-1  y2=y+h-1");
+            E("RTRECT:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\tR0, -(SP)");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\tR2, -(SP)");
+            E("        MOV\tR3, -(SP)");
+            // Вычисляем x2 = x+w-1 → R2, y2 = y+h-1 → R3
+            E("        MOV\t4.(R5), R2");           // R2 = x
+            E("        ADD\t8.(R5), R2");           // R2 = x+w
+            E("        DEC\tR2");                   // R2 = x2
+            E("        MOV\t6.(R5), R3");           // R3 = y
+            E("        ADD\t10.(R5), R3");          // R3 = y+h
+            E("        DEC\tR3");                   // R3 = y2
+            // ── Верхняя: (x,y)→(x2,y) ────────────────────────────
+            E("        MOV\t12.(R5), -(SP)");       // color
+            E("        MOV\t6.(R5), -(SP)");        // y
+            E("        MOV\tR2, -(SP)");            // x2
+            E("        MOV\t6.(R5), -(SP)");        // y
+            E("        MOV\t4.(R5), -(SP)");        // x
+            E("        JSR\tPC, RTLINE");
+            E("        ADD\t#10., SP");
+            // ── Нижняя: (x,y2)→(x2,y2) ──────────────────────────
+            E("        MOV\t12.(R5), -(SP)");       // color
+            E("        MOV\tR3, -(SP)");            // y2
+            E("        MOV\tR2, -(SP)");            // x2
+            E("        MOV\tR3, -(SP)");            // y2
+            E("        MOV\t4.(R5), -(SP)");        // x
+            E("        JSR\tPC, RTLINE");
+            E("        ADD\t#10., SP");
+            // ── Левая: (x,y)→(x,y2) ──────────────────────────────
+            E("        MOV\t12.(R5), -(SP)");       // color
+            E("        MOV\tR3, -(SP)");            // y2
+            E("        MOV\t4.(R5), -(SP)");        // x
+            E("        MOV\t6.(R5), -(SP)");        // y
+            E("        MOV\t4.(R5), -(SP)");        // x
+            E("        JSR\tPC, RTLINE");
+            E("        ADD\t#10., SP");
+            // ── Правая: (x2,y)→(x2,y2) ──────────────────────────
+            E("        MOV\t12.(R5), -(SP)");       // color
+            E("        MOV\tR3, -(SP)");            // y2
+            E("        MOV\tR2, -(SP)");            // x2
+            E("        MOV\t6.(R5), -(SP)");        // y
+            E("        MOV\tR2, -(SP)");            // x2
+            E("        JSR\tPC, RTLINE");
+            E("        ADD\t#10., SP");
+            // ── Эпилог ───────────────────────────────────────────
             E("        MOV\t(SP)+, R3");
             E("        MOV\t(SP)+, R2");
             E("        MOV\t(SP)+, R1");
@@ -3084,6 +3145,19 @@ namespace CompMacro11
                     GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y0
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x0
                     EI("JSR", "PC, RTLINE");
+                    EI("ADD", "#10., SP");
+                    break;
+
+                case "rect":
+                    if (c.Args.Count != 5)
+                        throw new Exception($"Строка {c.Line}: rect(x,y,w,h,color) требует 5 аргументов");
+                    EC($"rect({ArgStr(c)}): прямоугольник");
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // color
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTRECT");
                     EI("ADD", "#10., SP");
                     break;
 
