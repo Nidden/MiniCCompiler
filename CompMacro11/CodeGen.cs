@@ -89,7 +89,7 @@ namespace CompMacro11
             "cls", "init", "pause",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "rect", "circle", "print", "printnum", "getTimer"
+            "point", "line", "rect", "fill_rect", "circle", "print", "printnum", "getTimer"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -162,6 +162,10 @@ namespace CompMacro11
                 "RTPTBL","RPTL1","RPTL2","RPTL3","RTPPNT","RPPNR",
                 "RTLINE","RTLCK1","RTLCK2","RTLCK3","RTLCK4","RTLNA","RTLNB","RTLNC","RTLND","RTLNE","RTLNF","RTLNG","RTLNL","RTLNX",
                 "RTRECT",
+                "RTFRCT","RFCK1","RFCK2","RFCK3","RFCK4",
+                "RFCTY","RFCTW","RFCTL0","RFCTL","RFCTR0","RFCTRP","RFCTN",
+                "RFCTSM","RFCSMY","RFCSMX","RFCTOK","RFCTEX",
+                "FCTAB",
                 "RTCRC","RCRC1","RCRC1A","RCRC2","RCRC3","RCRC9",
                 "XWRD","CM0","CM1","CM2","CM3","CTAB",
                 "DSPST","KBDRT","KBDLT","KBDUP","KBDDN" })
@@ -960,6 +964,227 @@ namespace CompMacro11
             E("        RTS\tPC");
             E("");
 
+            // ── RTFRCT: залитый прямоугольник (fill_rect) ────────
+            E("; RTFRCT — fill_rect(x,y,w,h,color)");
+            E(";   4.(R5)=x  6.(R5)=y  8.(R5)=w  10.(R5)=h  12.(R5)=color");
+            E("; Клиппинг в прологе: x2=x+w, y2=y+h, обрезаем до 0..320/264");
+            E("; Если w < 8: один цикл пикселями. Если w >= 8: слова + выступы.");
+            E("RTFRCT:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\tR0, -(SP)");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\tR2, -(SP)");
+            E("        MOV\tR3, -(SP)");
+            E("        MOV\tR4, -(SP)");
+
+            // ── Клиппинг ─────────────────────────────────────────
+            // R0=x R1=y R2=x2=x+w R3=y2=y+h
+            E("        MOV\t4.(R5),  R0");           // R0 = x
+            E("        MOV\t6.(R5),  R1");           // R1 = y
+            E("        MOV\tR0, R2");
+            E("        ADD\t8.(R5),  R2");           // R2 = x2 = x+w
+            E("        MOV\tR1, R3");
+            E("        ADD\t10.(R5), R3");           // R3 = y2 = y+h
+            // if x < 0: x = 0
+            E("        TST\tR0");
+            E("        BPL\tRFCK1");
+            E("        CLR\tR0");
+            E("RFCK1:");
+            // if y < 0: y = 0
+            E("        TST\tR1");
+            E("        BPL\tRFCK2");
+            E("        CLR\tR1");
+            E("RFCK2:");
+            // if x2 > 320: x2 = 320
+            E("        CMP\tR2, #320.");
+            E("        BLE\tRFCK3");
+            E("        MOV\t#320., R2");
+            E("RFCK3:");
+            // if y2 > 264: y2 = 264
+            E("        CMP\tR3, #264.");
+            E("        BLE\tRFCK4");
+            E("        MOV\t#264., R3");
+            E("RFCK4:");
+            // if x2 <= x или y2 <= y → выход (полностью за экраном)
+            E("        CMP\tR2, R0");
+            E("        BLE\tRFCTEX");
+            E("        CMP\tR3, R1");
+            E("        BLE\tRFCTEX");
+            // Вычисляем новые w и h
+            E("        SUB\tR0, R2");                // R2 = w = x2-x
+            E("        SUB\tR1, R3");                // R3 = h = y2-y
+            // Сохраняем обрезанные значения на стек
+            // Используем как локальные: cx cy cw ch
+            E("        MOV\tR3, -(SP)");             // push ch (h обрезанное)
+            E("        MOV\tR2, -(SP)");             // push cw (w обрезанное)
+            E("        MOV\tR1, -(SP)");             // push cy (y обрезанное)
+            E("        MOV\tR0, -(SP)");             // push cx (x обрезанное)
+            // SP+0=cx SP+2=cy SP+4=cw SP+6=ch
+            // Используем cx,cy,cw,ch вместо аргументов R5
+
+            // Проверяем cw < 8  (R2=cw после клиппинга)
+            E("        CMP\tR2, #10.");              // cw < 8?
+            E("        BLT\tRFCTSM");
+
+            // ── Вычисляем x_left, x_right, left_w, right_w, words ─
+            // SP+0=cx SP+2=cy SP+4=cw SP+6=ch
+            // R0=cx R1=cy R2=cw R3=ch (из клиппинга)
+            // x2 = cx + cw
+            E("        MOV\tR0, R2");                // R2 = cx
+            E("        ADD\t4.(SP), R2");            // R2 = cx+cw
+
+            // x_left = (cx+7) & ~7
+            E("        MOV\tR0, R1");
+            E("        ADD\t#7., R1");
+            E("        BIC\t#7, R1");                // R1 = x_left
+
+            // x_right = (cx+cw) & ~7
+            E("        MOV\tR2, R3");
+            E("        BIC\t#7, R3");                // R3 = x_right
+
+            // left_w = x_left - cx
+            E("        MOV\tR1, R4");
+            E("        SUB\tR0, R4");                // R4 = left_w
+
+            // right_w = (cx+cw) - x_right
+            E("        MOV\tR2, R0");
+            E("        SUB\tR3, R0");                // R0 = right_w
+
+            // words = (x_right - x_left) >> 3
+            E("        MOV\tR3, R2");
+            E("        SUB\tR1, R2");
+            E("        ASR\tR2");
+            E("        ASR\tR2");
+            E("        ASR\tR2");                    // R2 = words
+
+            // Пушим: h x_left x_right left_w right_w words
+            // SP сейчас: cx cy cw ch (4 слова = 8 байт)
+            E("        MOV\t6.(SP), -(SP)");         // push ch = h  → SP+10=h
+            E("        MOV\tR1, -(SP)");             // SP+8 = x_left
+            E("        MOV\tR3, -(SP)");             // SP+6 = x_right
+            E("        MOV\tR4, -(SP)");             // SP+4 = left_w
+            E("        MOV\tR0, -(SP)");             // SP+2 = right_w
+            E("        MOV\tR2, -(SP)");             // SP+0 = words
+            // Итого на стеке: words right_w left_w x_right x_left h cx cy cw ch
+
+            // Слово цвета → R4
+            E("        MOV\t12.(R5), R4");           // color (R5 = FP не изменился)
+            E("        ASL\tR4");
+            E("        MOV\tFCTAB(R4), R4");
+
+            // cy*2 → R1  (cy = SP+14)
+            E("        MOV\t14.(SP), R1");           // cy
+            E("        ASL\tR1");                    // R1 = cy*2
+
+            // ══ Цикл по строкам ══════════════════════════════════
+            E("RFCTY:");
+
+            // 1. Центр словами
+            E("        TST\t0.(SP)");                // words == 0?
+            E("        BEQ\tRFCTL0");
+            E("        MOV\tDSPST(R1), R3");         // начало строки VRAM
+            E("        MOV\t8.(SP), R0");            // x_left
+            E("        ASR\tR0");
+            E("        ASR\tR0");
+            E("        ASR\tR0");                    // x_left/8 = номер слова
+            E("        ADD\tR0, R3");                // адрес первого слова
+            E("        MOV\t0.(SP), R0");            // words
+            E("RFCTW:");
+            E("        MOV\tR3, @#176640");
+            E("        MOV\tR4, @#176642");
+            E("        INC\tR3");
+            E("        DEC\tR0");
+            E("        BNE\tRFCTW");
+
+            // 2. Левый выступ: left_w пикселей от cx
+            E("RFCTL0:");
+            E("        TST\t4.(SP)");                // left_w == 0?
+            E("        BEQ\tRFCTR0");
+            E("        MOV\t12.(SP), R0");           // R0 = cx
+            E("        MOV\tR1, R2");
+            E("        ASR\tR2");                    // R2 = y
+            E("        MOV\t4.(SP), R3");            // R3 = left_w
+            E("RFCTL:");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR2, -(SP)");
+            E("        MOV\tR0, -(SP)");
+            E("        JSR\tPC, RTPPNT");
+            E("        ADD\t#6., SP");
+            E("        MOV\t(SP)+, R1");
+            E("        INC\tR0");
+            E("        DEC\tR3");
+            E("        BNE\tRFCTL");
+
+            // 3. Правый выступ: right_w пикселей от x_right
+            E("RFCTR0:");
+            E("        TST\t2.(SP)");                // right_w == 0?
+            E("        BEQ\tRFCTN");
+            E("        MOV\t6.(SP), R0");            // R0 = x_right
+            E("        MOV\tR1, R2");
+            E("        ASR\tR2");
+            E("        MOV\t2.(SP), R3");            // R3 = right_w
+            E("RFCTRP:");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR2, -(SP)");
+            E("        MOV\tR0, -(SP)");
+            E("        JSR\tPC, RTPPNT");
+            E("        ADD\t#6., SP");
+            E("        MOV\t(SP)+, R1");
+            E("        INC\tR0");
+            E("        DEC\tR3");
+            E("        BNE\tRFCTRP");
+
+            // Следующая строка
+            E("RFCTN:");
+            E("        ADD\t#2., R1");               // y*2 += 2
+            E("        DEC\t10.(SP)");               // h--
+            E("        BNE\tRFCTY");
+            E("        ADD\t#20., SP");              // убрать words..h + cx cy cw ch
+            E("        BR\tRFCTEX");
+
+            // ── Малый путь: cw < 8 — один цикл пикселей ─────────
+            E("RFCTSM:");
+            // SP: cx cy cw ch
+            E("        MOV\t2.(SP), R1");            // R1 = cy
+            E("        ASL\tR1");                    // R1 = cy*2
+            E("        MOV\t6.(SP), R3");            // R3 = ch (счётчик строк)
+            E("RFCSMY:");
+            E("        MOV\t0.(SP), R0");            // R0 = px = cx
+            E("        MOV\tR1, R2");
+            E("        ASR\tR2");                    // R2 = y
+            E("        MOV\t4.(SP), R4");            // R4 = cw (счётчик пикселей)
+            E("RFCSMX:");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\tR3, -(SP)");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR2, -(SP)");
+            E("        MOV\tR0, -(SP)");
+            E("        JSR\tPC, RTPPNT");
+            E("        ADD\t#6., SP");
+            E("        MOV\t(SP)+, R3");
+            E("        MOV\t(SP)+, R1");
+            E("        INC\tR0");
+            E("        DEC\tR4");
+            E("        BNE\tRFCSMX");
+            E("        ADD\t#2., R1");
+            E("        DEC\tR3");
+            E("        BNE\tRFCSMY");
+            E("        ADD\t#8., SP");               // убрать cx cy cw ch
+
+            // ── Общий эпилог ─────────────────────────────────────
+            E("RFCTEX:");
+            E("        MOV\t(SP)+, R4");
+            E("        MOV\t(SP)+, R3");
+            E("        MOV\t(SP)+, R2");
+            E("        MOV\t(SP)+, R1");
+            E("        MOV\t(SP)+, R0");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
+
             // ── RTCRC: окружность (алгоритм Брезенхема) ──────────
             E("; RTCRC — circle(cx,cy,r,color)");
             E(";   4.(R5)=cx  6.(R5)=cy  8.(R5)=r  10.(R5)=color");
@@ -1057,6 +1282,9 @@ namespace CompMacro11
             // Таблицы на 640 — покрывают оба режима
             E("        .PSECT\tDATA, RW, D");
             E("CTAB:   .WORD\tCM0,CM1,CM2,CM3");
+            E("; FCTAB: слово цвета для fill_rect (8 пикселей одного цвета)");
+            E("; цвет 0=0x0000  1=0x00FF  2=0xFF00  3=0xFFFF");
+            E("FCTAB:  .WORD\t0, 377, 177400, 177777");
             E("XWRD:   .BLKW\t640.");
             E("CM0:    .BLKW\t640.");
             E("CM1:    .BLKW\t640.");
@@ -3158,6 +3386,19 @@ namespace CompMacro11
                     GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
                     EI("JSR", "PC, RTRECT");
+                    EI("ADD", "#10., SP");
+                    break;
+
+                case "fill_rect":
+                    if (c.Args.Count != 5)
+                        throw new Exception($"Строка {c.Line}: fill_rect(x,y,w,h,color) требует 5 аргументов");
+                    EC($"fill_rect({ArgStr(c)}): залитый прямоугольник");
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // color
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTFRCT");
                     EI("ADD", "#10., SP");
                     break;
 

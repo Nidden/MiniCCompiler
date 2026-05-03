@@ -460,22 +460,22 @@ namespace CompMacro11
             HelpFn(r, "cls", "[mode]", "настройка экрана + очистка; mode 0..3 (0 по умолчанию)");
             HelpFn(r, "init", "[mode]", "то же что cls([mode])");
             HelpFn(r, "pause", "", "пауза ~177777 итераций NOP");
-
             HelpFn(r, "print", "\"text\"", "вывод строки на терминал");
-
-            HelpFn(r, "box", "x,y,w,h,c", "прямоугольник; x,w в словах; c = индекс цвета 0-3");
-            HelpFn(r, "point", "x,y,c", "пиксель; x 0..319 (режим 0/2) или 0..639 (режим 1/3)");
-            HelpFn(r, "line", "x1,y1,x2,y2,c", "линия (StdLib, подключается автоматически)");
-            HelpFn(r, "circle", "cx,cy,r,c", "окружность Брезенхема; координаты в пикселях");
-            HelpFn(r, "fillCircle", "cx,cy,r,c", "залитый круг (StdLib, подключается автоматически)");
-            HelpFn(r, "fillhline", "lx,rx,py,c", "горизонтальная линия; используется внутри fillCircle");
-            HelpFn(r, "frame", "x,y,w,h,c", "контур прямоугольника в пикселях (StdLib)");
-            HelpFn(r, "printnum", "n", "вывод числа на терминал (StdLib)");
-            HelpFn(r, "sprite", "x,y,w,h,ptr", "спрайт из массива данных (MOV — перезапись)");
-            HelpFn(r, "spriteOr", "x,y,w,h,ptr", "спрайт через BIS (OR с экраном — прозрачность)");
+            HelpFn(r, "printnum", "n", "вывод числа на терминал");
             HelpFn(r, "waitkey", "", "ждать клавишу → код (блокирующее)");
             HelpFn(r, "getkey", "", "прочитать клавишу → код или 0 (неблокирующее)");
             HelpFn(r, "getTimer", "", "счётчик времени LTC @#177546 → int (для анимации)");
+            HelpFn(r, "sprite", "x,y,w,h,ptr", "спрайт из массива данных (MOV — перезапись)");
+            HelpFn(r, "spriteOr", "x,y,w,h,ptr", "спрайт через BIS (OR с экраном — прозрачность)");
+            HelpFn(r, "box", "x,y,w,h,c", "прямоугольник словами; x,w в словах; c = 0-3");
+
+            HelpT(r, "\n═══ basicGraphic — пакет попиксельной графики ═══════════\n", Color.FromArgb(78, 201, 176));
+            HelpT(r, "  Фундамент: point(). Все остальные функции строятся поверх.\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "  Экран: 320×264 (режим 0/2) или 640×264 (режим 1/3), 4 цвета.\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "  Цвета: 0=чёрный  1=синий  2=зелёный  3=белый\n\n", Color.FromArgb(150, 150, 150));
+            HelpFn(r, "point", "x, y, c", "пиксель — фундамент пакета. Нативный, максимальная скорость.");
+            HelpFn(r, "line", "x0,y0, x1,y1, c", "линия Брезенхэма. Нативный. Клиппинг Cohen-Sutherland.");
+            HelpFn(r, "rect", "x, y, w, h, c", "прямоугольник (контур). Нативный. 4 стороны через line.");
 
             HelpT(r, "\n═══ ЦВЕТА (индекс для box) ════════════════════════════\n", Color.FromArgb(86, 156, 214));
             HelpKv(r, "0", "чёрный   (0)");
@@ -1104,11 +1104,11 @@ int main(void) {
 
     return 0;
 }";
-    
 
-    // ── Методы работы с проектом ──────────────────────────────────
 
-    private void ProjectNew()
+        // ── Методы работы с проектом ──────────────────────────────────
+
+        private void ProjectNew()
         {
             if (!ProjectCheckSave()) return;
             var dlg = new NewProjectDialog();
