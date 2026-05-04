@@ -89,7 +89,7 @@ namespace CompMacro11
             "cls", "init", "pause",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "rect", "fill_rect", "fill_grad_h", "fill_grad_v", "circle", "print", "printnum", "getTimer"
+            "point", "line", "rect", "fill_rect", "fill_grad_h", "fill_grad_v", "random", "ellipse", "circle", "print", "printnum", "getTimer"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -156,11 +156,12 @@ namespace CompMacro11
                 "RTSPR","RTSP1","RTSP2","RTSPB","RTSB1","RTSB2",
                 "RTPNUM","RPNP","RPNM","RPNLP","RPNSB","RPNPT","RPNPR","RPNWT","RPNSK","RPNDN","RPNZ","RPNX","RPNTB","RPNPV",
                 "RTGTIM",
+                "RTRAND","RRND1","RRND2","RRND3","RRND4","RNDSEED",
                 "RTWKEY","RTGKEY","RTGK1",
                 "RTCLRT","RTCLR",
                 "RTMCLR","RTMC1","RTMCPY","RTCP1",
                 "RTPTBL","RPTL1","RPTL2","RPTL3","RTPPNT","RPPNR",
-                "RTLINE","RTLCK1","RTLCK2","RTLCK3","RTLCK4","RTLNA","RTLNB","RTLNC","RTLND","RTLNE","RTLNF","RTLNG","RTLNL","RTLNX",
+                "RTLINE","RTLCK1","RTLCK2","RTLCK3","RTLCK4","RTLNA","RTLNB","RTLNC","RTLND","RTLNE","RTLNF","RTLNG","RTLNL","RTLNX","RTLNR",
                 "RTRECT",
                 "RTFRCT","RFCK1","RFCK2","RFCK3","RFCK4",
                 "RFCTY","RFCTW","RFCTL0","RFCTL","RFCTR0","RFCTRP","RFCTN",
@@ -169,7 +170,9 @@ namespace CompMacro11
                 "RTDITH","RDCK1","RDCK2","RDCK3","RDCK4","RDCKHY","RDITHY","RDITHX","RDITHN","RDITHEX",
                 "RTGRDH","RGRDHL","RGRDH1","RTGRDV","RGRDVL","RGRDV1",
                 "DTAB",
-                "RTCRC","RCRC1","RCRC1A","RCRC2","RCRC3","RCRC9",
+                "RTELLI","RELA2","RELA0","RELB2","RELB0","RELD2","RELD0","RELD4","RELD3",
+                "RELC2","RELC0","RELL1","RELL1X","RELL1Y","RELL1N","RELL2","RELL2X","RELL2Y","RELLX",
+                "RELP4",
                 "XWRD","CM0","CM1","CM2","CM3","CTAB","SCRW",
                 "DSPST","KBDRT","KBDLT","KBDUP","KBDDN" })
                 _usedLabels.Add(lbl);
@@ -606,7 +609,39 @@ namespace CompMacro11
             E("        RTS\tPC");
             E("");
 
-            // ── RTWKEY: блокирующее чтение (ждёт клавишу) ───────
+
+            // ── RTRAND: генератор случайных чисел (LFSR 16-бит) ──
+            E("; RTRAND — random(n): возвращает случайное число 0..n-1");
+            E(";   4.(R5)=n");
+            E("; LFSR период 65535, маска=0xB400=132000(oct)");
+            E("RTRAND:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\tRNDSEED, R0");           // R0 = seed
+            // LFSR: C = seed&1 (через ROR), seed>>=1, if C: seed ^= 0xB400
+            E("        CLC");                        // C=0
+            E("        ROR\tR0");                    // seed>>=1, старый бит0 → C
+            E("        BCC\tRRND1");                 // бит был 0 → не XOR
+            E("        MOV\t#132000, R1");           // маска 0xB400
+            E("        XOR\tR1, R0");                // seed ^= 0xB400 (XOR reg,dst)
+            E("RRND1:");
+            E("        BNE\tRRND2");                 // seed не должен быть 0
+            E("        INC\tR0");
+            E("RRND2:");
+            E("        MOV\tR0, RNDSEED");
+            E("        MOV\t4.(R5), R1");            // R1 = n
+            E("        BEQ\tRRND4");                 // n==0 → возврат 0
+            E("RRND3:");
+            E("        CMP\tR0, R1");
+            E("        BLO\tRRND4");
+            E("        SUB\tR1, R0");
+            E("        BR\tRRND3");
+            E("RRND4:");
+            E("        MOV\t(SP)+, R1");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
             E("; RTWKEY / waitkey() — крутится пока не придёт символ.");
             E("; BIC #177600 убирает бит чётности (parity) УКНЦ.");
             E("RTWKEY:");
@@ -771,7 +806,7 @@ namespace CompMacro11
             E("        BMI\tRPPNR");
             E("        TST\tR1");               // py < 0?
             E("        BMI\tRPPNR");
-            E("        CMP\tR0, #640.");        // px >= 640?
+            E("        CMP	R0, SCRW");         // px >= scrw?
             E("        BGE\tRPPNR");
             E("        CMP\tR1, #264.");        // py >= 264?
             E("        BGE\tRPPNR");
@@ -813,25 +848,25 @@ namespace CompMacro11
             E("        TST\t4.(R5)");             // x0 < 0?
             E("        BPL\tRTLCK1");
             E("        TST\t8.(R5)");             // x1 < 0?
-            E("        BMI\tRTLNX");              // оба левее — выход
+            E("        BMI\tRTLNR");              // оба левее — выход
             E("RTLCK1:");
-            // Оба x >= 320?
+            // Оба x >= SCRW?
             E("        CMP	4.(R5), SCRW");      // x0 >= scrw?
             E("        BLT\tRTLCK2");
             E("        CMP	8.(R5), SCRW");      // x1 >= scrw?
-            E("        BGE\tRTLNX");              // оба правее — выход
+            E("        BGE\tRTLNR");              // оба правее — выход
             E("RTLCK2:");
             // Оба y < 0?
             E("        TST\t6.(R5)");             // y0 < 0?
             E("        BPL\tRTLCK3");
             E("        TST\t10.(R5)");            // y1 < 0?
-            E("        BMI\tRTLNX");              // оба выше — выход
+            E("        BMI\tRTLNR");              // оба выше — выход
             E("RTLCK3:");
             // Оба y >= 264?
             E("        CMP\t6.(R5), #264.");      // y0 >= 264?
             E("        BLT\tRTLCK4");
             E("        CMP\t10.(R5), #264.");     // y1 >= 264?
-            E("        BGE\tRTLNX");              // оба ниже — выход
+            E("        BGE\tRTLNR");              // оба ниже — выход
             E("RTLCK4:");
             // ── Брезенхэм ────────────────────────────────────────
             E("        SUB\t#8., SP");            // резервируем: dx dy sx sy
@@ -903,8 +938,9 @@ namespace CompMacro11
             E("        ADD\t0.(SP), R1");        // y += sy
             E("RTLNG:");
             E("        BR\tRTLNL");
-            E("RTLNX:");                         // эпилог
+            E("RTLNX:");                         // эпилог после Брезенхэма
             E("        ADD\t#8., SP");            // убрать dx dy sx sy
+            E("RTLNR:");                          // ранний выход (reject) — стек не менялся
             E("        MOV\t(SP)+, R3");
             E("        MOV\t(SP)+, R2");
             E("        MOV\t(SP)+, R1");
@@ -1033,7 +1069,7 @@ namespace CompMacro11
             // Используем cx,cy,cw,ch вместо аргументов R5
 
             // Проверяем cw < 8  (R2=cw после клиппинга)
-            E("        CMP\tR2, #10.");              // cw < 8?
+            E("        CMP\tR2, #8.");               // cw < 8?
             E("        BLT\tRFCTSM");
 
             // ── Вычисляем x_left, x_right, left_w, right_w, words ─
@@ -1411,6 +1447,203 @@ namespace CompMacro11
             E("        RTS	PC");
             E("");
 
+            // ── RTELLI: эллипс ───────────────────────────────────
+            E("; RTELLI — ellipse(xc,yc,a,b,color)");
+            E(";   4.(R5)=xc 6.(R5)=yc 8.(R5)=a 10.(R5)=b 12.(R5)=color");
+            E("; Брезенхэм эллипса без умножений. a,b <= 127.");
+            E("; d — 32 бит (R2=lo, R3=hi). dx,dy — 32 бит на стеке.");
+            E("; x,y — в R0,R1. a2,b2,two_a2,two_b2 на стеке.");
+            E("; Стек: SP+0=dy_hi SP+2=dy_lo SP+4=dx_hi SP+6=dx_lo");
+            E(";       SP+8=two_b2 SP+10=two_a2 SP+12=b2 SP+14=a2");
+            E("RTELLI:");
+            E("        MOV	R5, -(SP)");
+            E("        MOV	SP, R5");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	R3, -(SP)");
+            E("        MOV	R4, -(SP)");
+            E("        CLR	R2");
+            E("        MOV	#1., R3");
+            E("        MOV	8.(R5), R4");
+            E("        BEQ	RELA0");
+            E("RELA2:  ADD	R3, R2");
+            E("        ADD	#2., R3");
+            E("        DEC	R4");
+            E("        BNE	RELA2");
+            E("RELA0:  MOV	R2, -(SP)");
+            E("        CLR	R2");
+            E("        MOV	#1., R3");
+            E("        MOV	10.(R5), R4");
+            E("        BEQ	RELB0");
+            E("RELB2:  ADD	R3, R2");
+            E("        ADD	#2., R3");
+            E("        DEC	R4");
+            E("        BNE	RELB2");
+            E("RELB0:  MOV	R2, -(SP)");
+            E("        MOV	2.(SP), R2");
+            E("        ASL	R2");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	2.(SP), R2");
+            E("        ASL	R2");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	0.(SP), -(SP)");
+            E("        CLR	-(SP)");
+            E("        CLR	R2");
+            E("        CLR	R3");
+            E("        MOV	6.(SP), R4");
+            E("        MOV	10.(R5), -(SP)");
+            E("        BEQ	RELD0");
+            E("RELD2:  ADD	R4, R2");
+            E("        ADC	R3");
+            E("        DEC	(SP)");
+            E("        BNE	RELD2");
+            E("RELD0:  TST	(SP)+");
+            E("        MOV	6.(SP), R4");
+            E("        SUB	R2, R4");
+            E("        CLR	R2");
+            E("        SBC	R2");
+            E("        CLR	R2");
+            E("        SBC	R2");
+            E("        SUB	R3, R2");
+            E("        MOV	R4, -(SP)");
+            E("        MOV	R2, -(SP)");
+            E("        CLR	R2");
+            E("        CLR	R3");
+            E("        MOV	10.(SP), R4");
+            E("        MOV	10.(R5), -(SP)");
+            E("        BEQ	RELD3");
+            E("RELD4:  ADD	R4, R2");
+            E("        ADC	R3");
+            E("        DEC	(SP)");
+            E("        BNE	RELD4");
+            E("RELD3:  TST	(SP)+");
+            E("        MOV	8.(SP), R4");
+            E("        ADD	14.(SP), R4");
+            E("        CLR	R0");
+            E("        ADC	R0");
+            E("        SUB	R2, R4");
+            E("        SBC	R0");
+            E("        SUB	R3, R0");
+            E("        MOV	R4, R2");
+            E("        MOV	R0, R3");
+            E("        CLR	R0");
+            E("        MOV	10.(R5), R1");
+            E("        CLR	R4");
+            E("        MOV	14.(SP), -(SP)");
+            E("        MOV	10.(R5), -(SP)");
+            E("        BEQ	RELC0");
+            E("RELC2:  ADD	2.(SP), R4");
+            E("        DEC	(SP)");
+            E("        BNE	RELC2");
+            E("RELC0:  ADD	#4., SP");
+            E("RELL1:");
+            E("        TST	R4");
+            E("        BLE	RELL1X");
+            E("        JSR	PC, RELP4");
+            E("        TST	R3");
+            E("        BMI	RELL1N");
+            E("        BNE	RELL1Y");
+            E("        TST	R2");
+            E("        BEQ	RELL1N");
+            E("RELL1Y:");
+            E("        DEC	R1");
+            E("        ADD	10.(SP), 2.(SP)");
+            E("        ADC	0.(SP)");
+            E("        ADD	2.(SP), R2");
+            E("        ADC	R3");
+            E("        ADD	0.(SP), R3");
+            E("        SUB	14.(SP), R4");
+            E("RELL1N:");
+            E("        INC	R0");
+            E("        ADD	6.(SP), R2");
+            E("        ADC	R3");
+            E("        ADD	4.(SP), R3");
+            E("        ADD	8.(SP), 6.(SP)");
+            E("        ADC	4.(SP)");
+            E("        SUB	12.(SP), R4");
+            E("        BR	RELL1");
+            E("RELL1X:");
+            E("RELL2:");
+            E("        TST	R1");
+            E("        BMI	RELLX");
+            E("        JSR	PC, RELP4");
+            E("        TST	R3");
+            E("        BMI	RELL2X");
+            E("        BNE	RELL2Y");
+            E("        TST	R2");
+            E("        BNE	RELL2Y");
+            E("RELL2X:");
+            E("        INC	R0");
+            E("        ADD	6.(SP), R2");
+            E("        ADC	R3");
+            E("        ADD	4.(SP), R3");
+            E("        ADD	8.(SP), 6.(SP)");
+            E("        ADC	4.(SP)");
+            E("RELL2Y:");
+            E("        DEC	R1");
+            E("        ADD	10.(SP), 2.(SP)");
+            E("        ADC	0.(SP)");
+            E("        ADD	2.(SP), R2");
+            E("        ADC	R3");
+            E("        ADD	0.(SP), R3");
+            E("        BR	RELL2");
+            E("RELLX:");
+            E("        ADD	#16., SP");
+            E("        MOV	(SP)+, R4");
+            E("        MOV	(SP)+, R3");
+            E("        MOV	(SP)+, R2");
+            E("        MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        MOV	(SP)+, R5");
+            E("        RTS	PC");
+            E("");
+            E("; RELP4 — рисует 4 точки эллипса");
+            E("; R0=x R1=y R5=FP (доступ к xc,yc,color)");
+            E("; Портит R0..R3 через RTPPNT, восстанавливает");
+            E("RELP4:");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	12.(R5), -(SP)");
+            E("        MOV	6.(R5), R1");
+            E("        ADD	2.(SP), R1");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	4.(R5), R0");
+            E("        ADD	4.(SP), R0");
+            E("        MOV	R0, -(SP)");
+            E("        JSR	PC, RTPPNT");
+            E("        ADD	#6., SP");
+            E("        MOV	12.(R5), -(SP)");
+            E("        MOV	6.(R5), R1");
+            E("        ADD	2.(SP), R1");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	4.(R5), R0");
+            E("        SUB	4.(SP), R0");
+            E("        MOV	R0, -(SP)");
+            E("        JSR	PC, RTPPNT");
+            E("        ADD	#6., SP");
+            E("        MOV	12.(R5), -(SP)");
+            E("        MOV	6.(R5), R1");
+            E("        SUB	2.(SP), R1");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	4.(R5), R0");
+            E("        ADD	4.(SP), R0");
+            E("        MOV	R0, -(SP)");
+            E("        JSR	PC, RTPPNT");
+            E("        ADD	#6., SP");
+            E("        MOV	12.(R5), -(SP)");
+            E("        MOV	6.(R5), R1");
+            E("        SUB	2.(SP), R1");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	4.(R5), R0");
+            E("        SUB	4.(SP), R0");
+            E("        MOV	R0, -(SP)");
+            E("        JSR	PC, RTPPNT");
+            E("        ADD	#6., SP");
+            E("        MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        RTS	PC");
+            E("");
             E("; RTCRC — circle(cx,cy,r,color)");
             E(";   4.(R5)=cx  6.(R5)=cy  8.(R5)=r  10.(R5)=color");
             E("; Bresenham midpoint: только +/-/сравнение, без умножения.");
@@ -1508,6 +1741,7 @@ namespace CompMacro11
             E("        .PSECT\tDATA, RW, D");
             E("CTAB:   .WORD\tCM0,CM1,CM2,CM3");
             E("SCRW:   .WORD\t320.");                // ширина экрана: 320 или 640
+            E("RNDSEED:.WORD\t12345.");
             E("; FCTAB: слово цвета для fill_rect (8 пикселей одного цвета)");
             E("; цвет 0=0x0000  1=0x00FF  2=0xFF00  3=0xFFFF");
             E("FCTAB:  .WORD\t0, 377, 177400, 177777");
@@ -3565,6 +3799,19 @@ namespace CompMacro11
                     EI("ADD", "#10., SP");
                     break;
 
+                case "ellipse":
+                    if (c.Args.Count != 5)
+                        throw new Exception($"Строка {c.Line}: ellipse(xc,yc,a,b,color) требует 5 аргументов");
+                    EC($"ellipse({ArgStr(c)}): эллипс Брезенхэма");
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // color
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // b
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // a
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // yc
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // xc
+                    EI("JSR", "PC, RTELLI");
+                    EI("ADD", "#10., SP");
+                    break;
+
                 case "circle":
                     if (c.Args.Count != 4)
                         throw new Exception($"Строка {c.Line}: circle(cx,cy,r,color) требует 4 аргумента");
@@ -3581,6 +3828,15 @@ namespace CompMacro11
                     if (c.Args.Count != 0)
                         throw new Exception($"Строка {c.Line}: getTimer() не принимает аргументов");
                     EI("JSR", "PC, RTGTIM");   // результат в R0
+                    break;
+
+                case "random":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: random(n) требует 1 аргумент");
+                    EC($"random({ArgStr(c)}): случайное число 0..n-1");
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // n
+                    EI("JSR", "PC, RTRAND");
+                    EI("ADD", "#2., SP");
                     break;
 
                 case "printnum":
