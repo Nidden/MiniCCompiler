@@ -89,7 +89,7 @@ namespace CompMacro11
             "cls", "init", "pause",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "rect", "fill_rect", "circle", "print", "printnum", "getTimer"
+            "point", "line", "rect", "fill_rect", "fill_grad_h", "fill_grad_v", "circle", "print", "printnum", "getTimer"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -151,7 +151,7 @@ namespace CompMacro11
             // Зарезервировать рантайм-метки
             foreach (var lbl in new[] {
                 "RTSTTBL","RTTBL1","RTPAUS","RTPS0","RTPRNT","RTPRN1","RTPRN2",
-                "RTCLS","RTCSTB","RTCSC0","RTCSC1","RTCSC2","RTCSC3",
+                "RTCLS","RTCLS1","RTCSTB","RTCSC0","RTCSC1","RTCSC2","RTCSC3",
                 "RTBOX","RTBX1","RTBX2",
                 "RTSPR","RTSP1","RTSP2","RTSPB","RTSB1","RTSB2",
                 "RTPNUM","RPNP","RPNM","RPNLP","RPNSB","RPNPT","RPNPR","RPNWT","RPNSK","RPNDN","RPNZ","RPNX","RPNTB","RPNPV",
@@ -166,8 +166,11 @@ namespace CompMacro11
                 "RFCTY","RFCTW","RFCTL0","RFCTL","RFCTR0","RFCTRP","RFCTN",
                 "RFCTSM","RFCSMY","RFCSMX","RFCTOK","RFCTEX",
                 "FCTAB",
+                "RTDITH","RDCK1","RDCK2","RDCK3","RDCK4","RDCKHY","RDITHY","RDITHX","RDITHN","RDITHEX",
+                "RTGRDH","RGRDHL","RGRDH1","RTGRDV","RGRDVL","RGRDV1",
+                "DTAB",
                 "RTCRC","RCRC1","RCRC1A","RCRC2","RCRC3","RCRC9",
-                "XWRD","CM0","CM1","CM2","CM3","CTAB",
+                "XWRD","CM0","CM1","CM2","CM3","CTAB","SCRW",
                 "DSPST","KBDRT","KBDLT","KBDUP","KBDDN" })
                 _usedLabels.Add(lbl);
 
@@ -373,10 +376,16 @@ namespace CompMacro11
             E("        MOV\tR0, -(SP)");
             E("        MOV\tR1, -(SP)");
             E("        BIS\t#010000, @#44");
-            E("        MOV\t(SP)+, R1");              // восстановить R1
-            E("        MOV\t(SP)+, R0");              // восстановить mode
-            E("        MOV\tR1, -(SP)");              // теперь сохраняем R1 для дальнейшей работы
+            E("        MOV\t(SP)+, R1");
+            E("        MOV\t(SP)+, R0");
+            E("        MOV\tR1, -(SP)");
             E("        BIC\t#177774, R0");
+            // Устанавливаем SCRW: режимы 1,3 = 640px, 0,2 = 320px
+            E("        MOV\t#320., SCRW");           // по умолчанию 320
+            E("        BIT\t#1., R0");               // бит 0 = 1 → режим 1 или 3 → 640px
+            E("        BEQ\tRTCLS1");
+            E("        MOV\t#640., SCRW");
+            E("RTCLS1:");
             E("        ASL\tR0");
             E("        MOV\tRTCSTB(R0), R1");
             E("        JSR\tPC, RTPRNT");
@@ -807,9 +816,9 @@ namespace CompMacro11
             E("        BMI\tRTLNX");              // оба левее — выход
             E("RTLCK1:");
             // Оба x >= 320?
-            E("        CMP\t4.(R5), #320.");      // x0 >= 320?
+            E("        CMP	4.(R5), SCRW");      // x0 >= scrw?
             E("        BLT\tRTLCK2");
-            E("        CMP\t8.(R5), #320.");      // x1 >= 320?
+            E("        CMP	8.(R5), SCRW");      // x1 >= scrw?
             E("        BGE\tRTLNX");              // оба правее — выход
             E("RTLCK2:");
             // Оба y < 0?
@@ -997,9 +1006,9 @@ namespace CompMacro11
             E("        CLR\tR1");
             E("RFCK2:");
             // if x2 > 320: x2 = 320
-            E("        CMP\tR2, #320.");
+            E("        CMP	R2, SCRW");
             E("        BLE\tRFCK3");
-            E("        MOV\t#320., R2");
+            E("        MOV	SCRW, R2");
             E("RFCK3:");
             // if y2 > 264: y2 = 264
             E("        CMP\tR3, #264.");
@@ -1183,9 +1192,225 @@ namespace CompMacro11
             E("        MOV\t(SP)+, R0");
             E("        MOV\t(SP)+, R5");
             E("        RTS\tPC");
+
+            // ── RTDITH: паттерновая заливка ───────────────────────
+            E("; RTDITH — fill_dither(x,y,w,h,pattern,fg,bg)");
+            E(";   4.(R5)=x 6.(R5)=y 8.(R5)=w 10.(R5)=h 12.(R5)=pat 14.(R5)=fg 16.(R5)=bg");
+            E("; Стек: SP+0=pat_base SP+2=x_sw SP+4=words SP+6=h SP+8=fg_mask SP+10=bg_mask");
+            E("RTDITH:");
+            E("        MOV	R5, -(SP)");
+            E("        MOV	SP, R5");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	R3, -(SP)");
+            E("        MOV	R4, -(SP)");
+            E("        MOV	4.(R5), R0");
+            E("        MOV	6.(R5), R1");
+            E("        MOV	R0, R2");
+            E("        ADD	8.(R5), R2");
+            E("        MOV	R1, R3");
+            E("        ADD	10.(R5), R3");
+            E("        TST	R0");
+            E("        BPL	RDCK1");
+            E("        CLR	R0");
+            E("RDCK1:  TST	R1");
+            E("        BPL	RDCK2");
+            E("        CLR	R1");
+            E("RDCK2:  CMP	R2, SCRW");
+            E("        BLE	RDCK3");
+            E("        MOV	SCRW, R2");
+            E("RDCK3:  CMP	R3, #264.");
+            E("        BLE	RDCK4");
+            E("        MOV	#264., R3");
+            E("RDCK4:");
+            E("        CMP	R2, R0");
+            E("        BLE	RDITHEX");
+            E("        CMP	R3, R1");
+            E("        BLE	RDITHEX");
+            E("        MOV	16.(R5), R4");
+            E("        ASL	R4");
+            E("        MOV	FCTAB(R4), R4");
+            E("        MOV	R4, -(SP)");
+            E("        MOV	14.(R5), R4");
+            E("        ASL	R4");
+            E("        MOV	FCTAB(R4), R4");
+            E("        MOV	R4, -(SP)");
+            E("        SUB	R1, R3");
+            E("        MOV	R3, -(SP)");
+            E("        BIC	#7, R0");
+            E("        ADD	#7., R2");
+            E("        BIC	#7, R2");
+            E("        MOV	R2, R4");
+            E("        SUB	R0, R4");
+            E("        ASR	R4");
+            E("        ASR	R4");
+            E("        ASR	R4");
+            E("        MOV	R4, -(SP)");
+            E("        ASR	R0");
+            E("        ASR	R0");
+            E("        ASR	R0");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	12.(R5), R4");
+            E("        ASL	R4");
+            E("        ASL	R4");
+            E("        ASL	R4");
+            E("        ASL	R4");
+            E("        MOV	R4, -(SP)");
+            E("        TST	R1");
+            E("        BPL	RDCKHY");
+            E("        CLR	R1");
+            E("RDCKHY: ASL	R1");
+            E("RDITHY:");
+            E("        MOV	R1, R0");
+            E("        ASR	R0");
+            E("        BIC	#177770, R0");
+            E("        ASL	R0");
+            E("        ADD	0.(SP), R0");
+            E("        MOV	DTAB(R0), R0");
+            E("        MOV	R0, R2");
+            E("        COM	R2");
+            E("        MOV	8.(SP), R3");
+            E("        BIC	R2, R3");
+            E("        MOV	10.(SP), R4");
+            E("        BIC	R0, R4");
+            E("        BIS	R4, R3");
+            E("        MOV	DSPST(R1), R4");
+            E("        ADD	2.(SP), R4");
+            E("        MOV	4.(SP), R2");
+            E("        BEQ	RDITHN");
+            E("RDITHX:");
+            E("        MOV	R4, @#176640");
+            E("        MOV	R3, @#176642");
+            E("        INC	R4");
+            E("        DEC	R2");
+            E("        BNE	RDITHX");
+            E("RDITHN:");
+            E("        ADD	#2., R1");
+            E("        DEC	6.(SP)");
+            E("        BNE	RDITHY");
+            E("        ADD	#12., SP");
+            E("RDITHEX:");
+            E("        MOV	(SP)+, R4");
+            E("        MOV	(SP)+, R3");
+            E("        MOV	(SP)+, R2");
+            E("        MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        MOV	(SP)+, R5");
+            E("        RTS	PC");
+            E("");
+            // ── RTGRDH: горизонтальный градиент (fill_grad_h) ────
+            E("; RTGRDH — fill_grad_h(x,y,w,h,fg,bg)");
+            E(";   4.(R5)=x 6.(R5)=y 8.(R5)=w 10.(R5)=h 12.(R5)=fg 14.(R5)=bg");
+            E("; 8 вертикальных полос шириной ~w/8, pat 0→7 слева направо");
+            E("; base=w>>3, rem=w&7, Брезенхэм для остатка");
+            E("; Стек: SP+0=cnt SP+2=accum SP+4=rem SP+6=base SP+8=cx");
+            E("RTGRDH:");
+            E("        MOV	R5, -(SP)");
+            E("        MOV	SP, R5");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	R3, -(SP)");
+            E("        MOV	R4, -(SP)");
+            E("        MOV	8.(R5), R2");            // w
+            E("        MOV	R2, R3");
+            E("        ASR	R3"); E("        ASR	R3"); E("        ASR	R3"); // base=w>>3
+            E("        BIC	#177770, R2");           // rem=w&7
+            E("        MOV	4.(R5), -(SP)");         // push cx=x    SP+8
+            E("        MOV	R3, -(SP)");             // push base    SP+6
+            E("        MOV	R2, -(SP)");             // push rem     SP+4
+            E("        CLR	-(SP)");                 // push accum=0 SP+2
+            E("        CLR	R4");                    // R4=pat=0
+            E("        MOV	#8., -(SP)");            // push cnt=8   SP+0
+            E("RGRDHL:");
+            E("        MOV	6.(SP), R2");            // R2=base=pw
+            E("        ADD	4.(SP), 2.(SP)");        // accum+=rem
+            E("        CMP	2.(SP), #8.");
+            E("        BLT	RGRDH1");
+            E("        INC	R2");
+            E("        SUB	#8., 2.(SP)");
+            E("RGRDH1:");
+            // Вызов fill_dither(cx, y, pw, h, pat, fg, bg)
+            E("        MOV	14.(R5), -(SP)");        // bg
+            E("        MOV	12.(R5), -(SP)");        // fg
+            E("        MOV	R4, -(SP)");             // pat
+            E("        MOV	10.(R5), -(SP)");        // h
+            E("        MOV	R2, -(SP)");             // pw
+            E("        MOV	6.(R5), -(SP)");         // y
+            E("        MOV	20.(SP), -(SP)");        // cx (SP+8 → +20 after 6 pushes)
+            E("        JSR	PC, RTDITH");
+            E("        ADD	#14., SP");
+            E("        ADD	R2, 8.(SP)");            // cx += pw
+            E("        INC	R4");                    // pat++
+            E("        DEC	0.(SP)");                // cnt--
+            E("        BNE	RGRDHL");
+            E("        ADD	#10., SP");              // убрать cnt accum rem base cx
+            E("        MOV	(SP)+, R4");
+            E("        MOV	(SP)+, R3");
+            E("        MOV	(SP)+, R2");
+            E("        MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        MOV	(SP)+, R5");
+            E("        RTS	PC");
             E("");
 
-            // ── RTCRC: окружность (алгоритм Брезенхема) ──────────
+            // ── RTGRDV: вертикальный градиент (fill_grad_v) ───────
+            E("; RTGRDV — fill_grad_v(x,y,w,h,fg,bg)");
+            E(";   4.(R5)=x 6.(R5)=y 8.(R5)=w 10.(R5)=h 12.(R5)=fg 14.(R5)=bg");
+            E("; 8 горизонтальных полос высотой ~h/8, pat 0→7 сверху вниз");
+            E("; base=h>>3, rem=h&7, Брезенхэм для остатка");
+            E("; Стек: SP+0=cnt SP+2=accum SP+4=rem SP+6=base SP+8=cy");
+            E("RTGRDV:");
+            E("        MOV	R5, -(SP)");
+            E("        MOV	SP, R5");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	R3, -(SP)");
+            E("        MOV	R4, -(SP)");
+            E("        MOV	10.(R5), R2");           // h
+            E("        MOV	R2, R3");
+            E("        ASR	R3"); E("        ASR	R3"); E("        ASR	R3"); // base=h>>3
+            E("        BIC	#177770, R2");           // rem=h&7
+            E("        MOV	6.(R5), -(SP)");         // push cy=y    SP+8
+            E("        MOV	R3, -(SP)");             // push base    SP+6
+            E("        MOV	R2, -(SP)");             // push rem     SP+4
+            E("        CLR	-(SP)");                 // push accum=0 SP+2
+            E("        CLR	R4");                    // R4=pat=0
+            E("        MOV	#8., -(SP)");            // push cnt=8   SP+0
+            E("RGRDVL:");
+            E("        MOV	6.(SP), R3");            // R3=base=ph
+            E("        ADD	4.(SP), 2.(SP)");        // accum+=rem
+            E("        CMP	2.(SP), #8.");
+            E("        BLT	RGRDV1");
+            E("        INC	R3");
+            E("        SUB	#8., 2.(SP)");
+            E("RGRDV1:");
+            // Вызов fill_dither(x, cy, w, ph, pat, fg, bg)
+            E("        MOV	14.(R5), -(SP)");        // bg
+            E("        MOV	12.(R5), -(SP)");        // fg
+            E("        MOV	R4, -(SP)");             // pat
+            E("        MOV	R3, -(SP)");             // ph
+            E("        MOV	8.(R5), -(SP)");         // w
+            E("        MOV	18.(SP), -(SP)");        // cy (SP+8 → +18 after 5 pushes)
+            E("        MOV	4.(R5), -(SP)");         // x
+            E("        JSR	PC, RTDITH");
+            E("        ADD	#14., SP");
+            E("        ADD	R3, 8.(SP)");            // cy += ph
+            E("        INC	R4");                    // pat++
+            E("        DEC	0.(SP)");                // cnt--
+            E("        BNE	RGRDVL");
+            E("        ADD	#10., SP");
+            E("        MOV	(SP)+, R4");
+            E("        MOV	(SP)+, R3");
+            E("        MOV	(SP)+, R2");
+            E("        MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        MOV	(SP)+, R5");
+            E("        RTS	PC");
+            E("");
+
             E("; RTCRC — circle(cx,cy,r,color)");
             E(";   4.(R5)=cx  6.(R5)=cy  8.(R5)=r  10.(R5)=color");
             E("; Bresenham midpoint: только +/-/сравнение, без умножения.");
@@ -1282,9 +1507,41 @@ namespace CompMacro11
             // Таблицы на 640 — покрывают оба режима
             E("        .PSECT\tDATA, RW, D");
             E("CTAB:   .WORD\tCM0,CM1,CM2,CM3");
+            E("SCRW:   .WORD\t320.");                // ширина экрана: 320 или 640
             E("; FCTAB: слово цвета для fill_rect (8 пикселей одного цвета)");
             E("; цвет 0=0x0000  1=0x00FF  2=0xFF00  3=0xFFFF");
             E("FCTAB:  .WORD\t0, 377, 177400, 177777");
+            E("; DTAB: 8 паттернов дизеринга, каждый 8 строк по 1 слову (оба плана одинаковы)");
+            E("; Паттерн p: 8 слов DTAB[p*8+row], row=0..7");
+            E("; Плотность: 0=0% 1=12% 2=25% 3=37% 4=50% 5=62% 6=75% 7=100%");
+            E("; Каждое слово = старший байт план1 + младший байт план2 (одинаковые)");
+            E("; Байт паттерна: биты = какие пиксели закрашены в строке");
+            E("; p0: 00000000 — пусто");
+            E("; p1: 10000000 10000000 ... — 1 из 8");
+            E("; p2: 10001000 ... — 2 из 8");
+            E("; p3: 10010100 ... — 3 из 8");
+            E("; p4: 10101010 ... — 4 из 8 шахматка");
+            E("; p5: 11010101 ... — 5 из 8");
+            E("; p6: 11101110 ... — 6 из 8");
+            E("; p7: 11111111 — полный");
+            E("; Формат слова: оба байта одинаковы = паттерн виден в обоих планах");
+            E("DTAB:");
+            // p0: 0% — пусто
+            E("        .WORD\t0,0,0,0,0,0,0,0");
+            // p1: 12% — диагональ редкая
+            E("        .WORD\t100200,10020,1002,40100,4010,401,20040,2004");
+            // p2: 25% — редкая сетка
+            E("        .WORD\t104210,0,21042,0,104210,0,21042,0");
+            // p3: 37%
+            E("        .WORD\t104210,42104,21042,10421,104210,42104,21042,10421");
+            // p4: 50% — шахматка
+            E("        .WORD\t125252,52525,125252,52525,125252,52525,125252,52525");
+            // p5: 62%
+            E("        .WORD\t73567,135673,156735,167356,73567,135673,156735,167356");
+            // p6: 75%
+            E("        .WORD\t73567,177777,156735,177777,73567,177777,156735,177777");
+            // p7: 100% — полный
+            E("        .WORD\t177777,177777,177777,177777,177777,177777,177777,177777");
             E("XWRD:   .BLKW\t640.");
             E("CM0:    .BLKW\t640.");
             E("CM1:    .BLKW\t640.");
@@ -3400,6 +3657,34 @@ namespace CompMacro11
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
                     EI("JSR", "PC, RTFRCT");
                     EI("ADD", "#10., SP");
+                    break;
+
+                case "fill_grad_h":
+                    if (c.Args.Count != 6)
+                        throw new Exception($"Строка {c.Line}: fill_grad_h(x,y,w,h,fg,bg) требует 6 аргументов");
+                    EC($"fill_grad_h({ArgStr(c)}): горизонтальный градиент");
+                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // bg
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // fg
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTGRDH");
+                    EI("ADD", "#12., SP");
+                    break;
+
+                case "fill_grad_v":
+                    if (c.Args.Count != 6)
+                        throw new Exception($"Строка {c.Line}: fill_grad_v(x,y,w,h,fg,bg) требует 6 аргументов");
+                    EC($"fill_grad_v({ArgStr(c)}): вертикальный градиент");
+                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // bg
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // fg
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTGRDV");
+                    EI("ADD", "#12., SP");
                     break;
 
                 case "waitkey":
