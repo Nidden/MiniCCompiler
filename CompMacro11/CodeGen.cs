@@ -89,7 +89,7 @@ namespace CompMacro11
             "cls", "init", "pause",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "rect", "fill_rect", "fill_grad_h", "fill_grad_v", "random", "ellipse", "circle", "print", "printnum", "getTimer"
+            "point", "line", "rect", "fill_rect", "fill_grad_h", "fill_grad_v", "random", "circle", "print", "printnum", "getTimer"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -170,10 +170,7 @@ namespace CompMacro11
                 "RTDITH","RDCK1","RDCK2","RDCK3","RDCK4","RDCKHY","RDITHY","RDITHX","RDITHN","RDITHEX",
                 "RTGRDH","RGRDHL","RGRDH1","RTGRDV","RGRDVL","RGRDV1",
                 "DTAB",
-                "RTELLI","RELA2","RELA0","RELB2","RELB0","RELD2","RELD0","RELD4","RELD3",
-                "RELC2","RELC0","RELL1","RELL1X","RELL1Y","RELL1N","RELL2","RELL2X","RELL2Y","RELLX",
-                "RELP4",
-                "XWRD","CM0","CM1","CM2","CM3","CTAB","SCRW",
+"XWRD","CM0","CM1","CM2","CM3","CTAB","SCRW",
                 "DSPST","KBDRT","KBDLT","KBDUP","KBDDN" })
                 _usedLabels.Add(lbl);
 
@@ -1447,203 +1444,6 @@ namespace CompMacro11
             E("        RTS	PC");
             E("");
 
-            // ── RTELLI: эллипс ───────────────────────────────────
-            E("; RTELLI — ellipse(xc,yc,a,b,color)");
-            E(";   4.(R5)=xc 6.(R5)=yc 8.(R5)=a 10.(R5)=b 12.(R5)=color");
-            E("; Брезенхэм эллипса без умножений. a,b <= 127.");
-            E("; d — 32 бит (R2=lo, R3=hi). dx,dy — 32 бит на стеке.");
-            E("; x,y — в R0,R1. a2,b2,two_a2,two_b2 на стеке.");
-            E("; Стек: SP+0=dy_hi SP+2=dy_lo SP+4=dx_hi SP+6=dx_lo");
-            E(";       SP+8=two_b2 SP+10=two_a2 SP+12=b2 SP+14=a2");
-            E("RTELLI:");
-            E("        MOV	R5, -(SP)");
-            E("        MOV	SP, R5");
-            E("        MOV	R0, -(SP)");
-            E("        MOV	R1, -(SP)");
-            E("        MOV	R2, -(SP)");
-            E("        MOV	R3, -(SP)");
-            E("        MOV	R4, -(SP)");
-            E("        CLR	R2");
-            E("        MOV	#1., R3");
-            E("        MOV	8.(R5), R4");
-            E("        BEQ	RELA0");
-            E("RELA2:  ADD	R3, R2");
-            E("        ADD	#2., R3");
-            E("        DEC	R4");
-            E("        BNE	RELA2");
-            E("RELA0:  MOV	R2, -(SP)");
-            E("        CLR	R2");
-            E("        MOV	#1., R3");
-            E("        MOV	10.(R5), R4");
-            E("        BEQ	RELB0");
-            E("RELB2:  ADD	R3, R2");
-            E("        ADD	#2., R3");
-            E("        DEC	R4");
-            E("        BNE	RELB2");
-            E("RELB0:  MOV	R2, -(SP)");
-            E("        MOV	2.(SP), R2");
-            E("        ASL	R2");
-            E("        MOV	R2, -(SP)");
-            E("        MOV	2.(SP), R2");
-            E("        ASL	R2");
-            E("        MOV	R2, -(SP)");
-            E("        MOV	0.(SP), -(SP)");
-            E("        CLR	-(SP)");
-            E("        CLR	R2");
-            E("        CLR	R3");
-            E("        MOV	6.(SP), R4");
-            E("        MOV	10.(R5), -(SP)");
-            E("        BEQ	RELD0");
-            E("RELD2:  ADD	R4, R2");
-            E("        ADC	R3");
-            E("        DEC	(SP)");
-            E("        BNE	RELD2");
-            E("RELD0:  TST	(SP)+");
-            E("        MOV	6.(SP), R4");
-            E("        SUB	R2, R4");
-            E("        CLR	R2");
-            E("        SBC	R2");
-            E("        CLR	R2");
-            E("        SBC	R2");
-            E("        SUB	R3, R2");
-            E("        MOV	R4, -(SP)");
-            E("        MOV	R2, -(SP)");
-            E("        CLR	R2");
-            E("        CLR	R3");
-            E("        MOV	10.(SP), R4");
-            E("        MOV	10.(R5), -(SP)");
-            E("        BEQ	RELD3");
-            E("RELD4:  ADD	R4, R2");
-            E("        ADC	R3");
-            E("        DEC	(SP)");
-            E("        BNE	RELD4");
-            E("RELD3:  TST	(SP)+");
-            E("        MOV	8.(SP), R4");
-            E("        ADD	14.(SP), R4");
-            E("        CLR	R0");
-            E("        ADC	R0");
-            E("        SUB	R2, R4");
-            E("        SBC	R0");
-            E("        SUB	R3, R0");
-            E("        MOV	R4, R2");
-            E("        MOV	R0, R3");
-            E("        CLR	R0");
-            E("        MOV	10.(R5), R1");
-            E("        CLR	R4");
-            E("        MOV	14.(SP), -(SP)");
-            E("        MOV	10.(R5), -(SP)");
-            E("        BEQ	RELC0");
-            E("RELC2:  ADD	2.(SP), R4");
-            E("        DEC	(SP)");
-            E("        BNE	RELC2");
-            E("RELC0:  ADD	#4., SP");
-            E("RELL1:");
-            E("        TST	R4");
-            E("        BLE	RELL1X");
-            E("        JSR	PC, RELP4");
-            E("        TST	R3");
-            E("        BMI	RELL1N");
-            E("        BNE	RELL1Y");
-            E("        TST	R2");
-            E("        BEQ	RELL1N");
-            E("RELL1Y:");
-            E("        DEC	R1");
-            E("        ADD	10.(SP), 2.(SP)");
-            E("        ADC	0.(SP)");
-            E("        ADD	2.(SP), R2");
-            E("        ADC	R3");
-            E("        ADD	0.(SP), R3");
-            E("        SUB	14.(SP), R4");
-            E("RELL1N:");
-            E("        INC	R0");
-            E("        ADD	6.(SP), R2");
-            E("        ADC	R3");
-            E("        ADD	4.(SP), R3");
-            E("        ADD	8.(SP), 6.(SP)");
-            E("        ADC	4.(SP)");
-            E("        SUB	12.(SP), R4");
-            E("        BR	RELL1");
-            E("RELL1X:");
-            E("RELL2:");
-            E("        TST	R1");
-            E("        BMI	RELLX");
-            E("        JSR	PC, RELP4");
-            E("        TST	R3");
-            E("        BMI	RELL2X");
-            E("        BNE	RELL2Y");
-            E("        TST	R2");
-            E("        BNE	RELL2Y");
-            E("RELL2X:");
-            E("        INC	R0");
-            E("        ADD	6.(SP), R2");
-            E("        ADC	R3");
-            E("        ADD	4.(SP), R3");
-            E("        ADD	8.(SP), 6.(SP)");
-            E("        ADC	4.(SP)");
-            E("RELL2Y:");
-            E("        DEC	R1");
-            E("        ADD	10.(SP), 2.(SP)");
-            E("        ADC	0.(SP)");
-            E("        ADD	2.(SP), R2");
-            E("        ADC	R3");
-            E("        ADD	0.(SP), R3");
-            E("        BR	RELL2");
-            E("RELLX:");
-            E("        ADD	#16., SP");
-            E("        MOV	(SP)+, R4");
-            E("        MOV	(SP)+, R3");
-            E("        MOV	(SP)+, R2");
-            E("        MOV	(SP)+, R1");
-            E("        MOV	(SP)+, R0");
-            E("        MOV	(SP)+, R5");
-            E("        RTS	PC");
-            E("");
-            E("; RELP4 — рисует 4 точки эллипса");
-            E("; R0=x R1=y R5=FP (доступ к xc,yc,color)");
-            E("; Портит R0..R3 через RTPPNT, восстанавливает");
-            E("RELP4:");
-            E("        MOV	R0, -(SP)");
-            E("        MOV	R1, -(SP)");
-            E("        MOV	12.(R5), -(SP)");
-            E("        MOV	6.(R5), R1");
-            E("        ADD	2.(SP), R1");
-            E("        MOV	R1, -(SP)");
-            E("        MOV	4.(R5), R0");
-            E("        ADD	4.(SP), R0");
-            E("        MOV	R0, -(SP)");
-            E("        JSR	PC, RTPPNT");
-            E("        ADD	#6., SP");
-            E("        MOV	12.(R5), -(SP)");
-            E("        MOV	6.(R5), R1");
-            E("        ADD	2.(SP), R1");
-            E("        MOV	R1, -(SP)");
-            E("        MOV	4.(R5), R0");
-            E("        SUB	4.(SP), R0");
-            E("        MOV	R0, -(SP)");
-            E("        JSR	PC, RTPPNT");
-            E("        ADD	#6., SP");
-            E("        MOV	12.(R5), -(SP)");
-            E("        MOV	6.(R5), R1");
-            E("        SUB	2.(SP), R1");
-            E("        MOV	R1, -(SP)");
-            E("        MOV	4.(R5), R0");
-            E("        ADD	4.(SP), R0");
-            E("        MOV	R0, -(SP)");
-            E("        JSR	PC, RTPPNT");
-            E("        ADD	#6., SP");
-            E("        MOV	12.(R5), -(SP)");
-            E("        MOV	6.(R5), R1");
-            E("        SUB	2.(SP), R1");
-            E("        MOV	R1, -(SP)");
-            E("        MOV	4.(R5), R0");
-            E("        SUB	4.(SP), R0");
-            E("        MOV	R0, -(SP)");
-            E("        JSR	PC, RTPPNT");
-            E("        ADD	#6., SP");
-            E("        MOV	(SP)+, R1");
-            E("        MOV	(SP)+, R0");
-            E("        RTS	PC");
-            E("");
             E("; RTCRC — circle(cx,cy,r,color)");
             E(";   4.(R5)=cx  6.(R5)=cy  8.(R5)=r  10.(R5)=color");
             E("; Bresenham midpoint: только +/-/сравнение, без умножения.");
@@ -3796,19 +3596,6 @@ namespace CompMacro11
                     EC($"spriteOr({ArgStr(c)}): спрайт через BIS");
                     for (int i = 4; i >= 0; i--) { GenExpr(c.Args[i]); EI("MOV", "R0, -(SP)"); }
                     EI("JSR", "PC, RTSPB");
-                    EI("ADD", "#10., SP");
-                    break;
-
-                case "ellipse":
-                    if (c.Args.Count != 5)
-                        throw new Exception($"Строка {c.Line}: ellipse(xc,yc,a,b,color) требует 5 аргументов");
-                    EC($"ellipse({ArgStr(c)}): эллипс Брезенхэма");
-                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // color
-                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // b
-                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // a
-                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // yc
-                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // xc
-                    EI("JSR", "PC, RTELLI");
                     EI("ADD", "#10., SP");
                     break;
 
