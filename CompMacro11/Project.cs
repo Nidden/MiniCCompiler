@@ -8,32 +8,32 @@ namespace CompMacro11
     public class CompilerSettings
     {
         public string TargetPlatform = "UKNC";
-        public int    ScreenMode     = 1;
-        public bool   OptimizeLabels = true;
+        public int ScreenMode = 1;
+        public bool OptimizeLabels = true;
     }
 
     public class McProject
     {
-        public string Name          = "Новый проект";
-        public string Version       = "1.0";
-        public string Created       = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-        public string Modified      = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-        public string MainFile      = "main.mc";
-        public List<string> Files   = new List<string>();
+        public string Name = "Новый проект";
+        public string Version = "1.0";
+        public string Created = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        public string Modified = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        public string MainFile = "main.mc";
+        public List<string> Files = new List<string>();
         public List<string> Sprites = new List<string>();
         public CompilerSettings Settings = new CompilerSettings();
-        public int    CursorLine    = 1;
-        public int    CursorCol     = 1;
+        public int CursorLine = 1;
+        public int CursorCol = 1;
 
         public string ProjectPath;
         public string ProjectDir { get { return ProjectPath != null ? Path.GetDirectoryName(ProjectPath) : null; } }
-        public bool   IsModified = false;
+        public bool IsModified = false;
 
         public static McProject CreateNew(string name, string folder)
         {
             var proj = new McProject();
-            proj.Name     = name;
-            proj.Created  = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            proj.Name = name;
+            proj.Created = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             proj.Modified = proj.Created;
 
             string dir = Path.Combine(folder, name);
@@ -55,16 +55,16 @@ namespace CompMacro11
             Modified = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             var sb = new StringBuilder();
             sb.AppendLine("{");
-            sb.AppendLine("  \"Name\": \""    + Escape(Name)    + "\",");
+            sb.AppendLine("  \"Name\": \"" + Escape(Name) + "\",");
             sb.AppendLine("  \"Version\": \"" + Escape(Version) + "\",");
             sb.AppendLine("  \"Created\": \"" + Escape(Created) + "\",");
-            sb.AppendLine("  \"Modified\": \""+ Escape(Modified)+ "\",");
-            sb.AppendLine("  \"MainFile\": \""+ Escape(MainFile)+ "\",");
-            sb.AppendLine("  \"CursorLine\": "+ CursorLine      + ",");
-            sb.AppendLine("  \"CursorCol\": " + CursorCol       + ",");
+            sb.AppendLine("  \"Modified\": \"" + Escape(Modified) + "\",");
+            sb.AppendLine("  \"MainFile\": \"" + Escape(MainFile) + "\",");
+            sb.AppendLine("  \"CursorLine\": " + CursorLine + ",");
+            sb.AppendLine("  \"CursorCol\": " + CursorCol + ",");
             sb.AppendLine("  \"Settings\": {");
             sb.AppendLine("    \"TargetPlatform\": \"" + Escape(Settings.TargetPlatform) + "\",");
-            sb.AppendLine("    \"ScreenMode\": "    + Settings.ScreenMode + ",");
+            sb.AppendLine("    \"ScreenMode\": " + Settings.ScreenMode + ",");
             sb.AppendLine("    \"OptimizeLabels\": " + (Settings.OptimizeLabels ? "true" : "false"));
             sb.AppendLine("  },");
             sb.Append("  \"Files\": [");
@@ -82,6 +82,26 @@ namespace CompMacro11
 
         public void SaveAs(string newPath)
         {
+            // newPath — это путь к новому .pkc файлу
+            // Копируем всю папку проекта в новое место
+            string srcDir = ProjectDir;
+            string newDir = Path.GetDirectoryName(newPath);
+            string newName = Path.GetFileNameWithoutExtension(newPath);
+
+            // Создаём новую папку если нужно
+            Directory.CreateDirectory(newDir);
+
+            // Копируем все файлы из исходной папки
+            foreach (string srcFile in Directory.GetFiles(srcDir, "*", SearchOption.AllDirectories))
+            {
+                string relative = srcFile.Substring(srcDir.Length).TrimStart(Path.DirectorySeparatorChar);
+                string dstFile = Path.Combine(newDir, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(dstFile));
+                File.Copy(srcFile, dstFile, overwrite: true);
+            }
+
+            // Обновляем Name и ProjectPath
+            Name = newName;
             ProjectPath = newPath;
             Save();
         }
@@ -90,18 +110,18 @@ namespace CompMacro11
         {
             var proj = new McProject();
             proj.ProjectPath = path;
-            string text      = File.ReadAllText(path, Encoding.UTF8);
-            proj.Name        = ReadStr(text, "Name");
-            proj.Version     = ReadStr(text, "Version");
-            proj.Created     = ReadStr(text, "Created");
-            proj.Modified    = ReadStr(text, "Modified");
-            proj.MainFile    = ReadStr(text, "MainFile");
-            proj.CursorLine  = ReadInt(text, "CursorLine", 1);
-            proj.CursorCol   = ReadInt(text, "CursorCol",  1);
+            string text = File.ReadAllText(path, Encoding.UTF8);
+            proj.Name = ReadStr(text, "Name");
+            proj.Version = ReadStr(text, "Version");
+            proj.Created = ReadStr(text, "Created");
+            proj.Modified = ReadStr(text, "Modified");
+            proj.MainFile = ReadStr(text, "MainFile");
+            proj.CursorLine = ReadInt(text, "CursorLine", 1);
+            proj.CursorCol = ReadInt(text, "CursorCol", 1);
             proj.Settings.TargetPlatform = ReadStr(text, "TargetPlatform");
-            proj.Settings.ScreenMode     = ReadInt(text, "ScreenMode", 1);
+            proj.Settings.ScreenMode = ReadInt(text, "ScreenMode", 1);
             proj.Settings.OptimizeLabels = ReadBool(text, "OptimizeLabels", true);
-            proj.Files   = ReadList(text, "Files");
+            proj.Files = ReadList(text, "Files");
             proj.Sprites = ReadList(text, "Sprites");
             proj.IsModified = false;
             return proj;
@@ -160,7 +180,7 @@ namespace CompMacro11
             int i = json.IndexOf(search);
             if (i < 0) return def;
             i += search.Length;
-            if (i + 4 <= json.Length && json.Substring(i, 4) == "true")  return true;
+            if (i + 4 <= json.Length && json.Substring(i, 4) == "true") return true;
             if (i + 5 <= json.Length && json.Substring(i, 5) == "false") return false;
             return def;
         }

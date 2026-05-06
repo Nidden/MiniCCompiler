@@ -86,10 +86,10 @@ namespace CompMacro11
         //   random(n)          → RTRAND
         private static readonly HashSet<string> _builtins = new HashSet<string>
         {
-            "cls", "init", "pause",
-            "box", "sprite", "spriteOr",
+            "cls", "pause",
+            "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "rect", "fill_rect", "fill_grad_h", "fill_grad_v", "random", "circle", "print", "printnum", "getTimer"
+            "point", "line", "rect", "fill_rect", "fill_grad_h", "fill_grad_v", "random", "circle"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -152,16 +152,14 @@ namespace CompMacro11
             foreach (var lbl in new[] {
                 "RTSTTBL","RTTBL1","RTPAUS","RTPS0","RTPRNT","RTPRN1","RTPRN2",
                 "RTCLS","RTCLS1","RTCSTB","RTCSC0","RTCSC1","RTCSC2","RTCSC3",
-                "RTBOX","RTBX1","RTBX2",
-                "RTSPR","RTSP1","RTSP2","RTSPB","RTSB1","RTSB2",
-                "RTPNUM","RPNP","RPNM","RPNLP","RPNSB","RPNPT","RPNPR","RPNWT","RPNSK","RPNDN","RPNZ","RPNX","RPNTB","RPNPV",
-                "RTGTIM",
+                                "RTSPR","RTSP1","RTSP2","RTSPB","RTSB1","RTSB2",
+
                 "RTRAND","RRND1","RRND2","RRND3","RRND4","RNDSEED",
                 "RTWKEY","RTGKEY","RTGK1",
                 "RTCLRT","RTCLR",
                 "RTMCLR","RTMC1","RTMCPY","RTCP1",
                 "RTPTBL","RPTL1","RPTL2","RPTL3","RTPPNT","RPPNR",
-                "RTLINE","RTLCK1","RTLCK2","RTLCK3","RTLCK4","RTLNA","RTLNB","RTLNC","RTLND","RTLNE","RTLNF","RTLNG","RTLNL","RTLNX","RTLNR",
+                "RTLINE","RTLCK1","RTLCK2","RTLCK3","RTLCK4","RTLCK5","RTLCK6","RTLCK7","RTLCK8","RTLCK9","RTLCKA","RTLCKB","RTLCKC","RTLNA","RTLNB","RTLNC","RTLND","RTLNE","RTLNF","RTLNG","RTLNL","RTLNX","RTLNR",
                 "RTRECT",
                 "RTFRCT","RFCK1","RFCK2","RFCK3","RFCK4",
                 "RFCTY","RFCTW","RFCTL0","RFCTL","RFCTR0","RFCTRP","RFCTN",
@@ -440,35 +438,6 @@ namespace CompMacro11
             E("");
 
             // ── RTBOX: залить прямоугольник цветом ───────────────
-            E("; RTBOX — залить прямоугольник (R0=x,R1=y,R2=w,R3=h,R4=color)");
-            E("; Аргументы через стек, caller-cleans-up.");
-            E("RTBOX:");
-            E("        MOV\tR5, -(SP)");
-            E("        MOV\tSP, R5");
-            E("        MOV\t4.(R5),  R0");
-            E("        MOV\t6.(R5),  R1");
-            E("        MOV\t8.(R5),  R2");
-            E("        MOV\t10.(R5), R3");
-            E("        MOV\t12.(R5), R4");
-            E("        ROL\tR1");
-            E("        MOV\tDSPST(R1), R5");
-            E("        ADD\tR0, R5");
-            E("        MOV\t#80., R0");
-            E("        SUB\tR2, R0");
-            E("RTBX1:  MOV\tR2, R1");
-            E("RTBX2:  MOV\tR5, @#176640");
-            E("        MOV\tR4, @#176642");
-            E("        INC\tR5");
-            E("        DEC\tR1");
-            E("        BNE\tRTBX2");
-            E("        ADD\tR0, R5");
-            E("        DEC\tR3");
-            E("        BNE\tRTBX1");
-            E("        MOV\t(SP)+, R5");
-            E("        RTS\tPC");
-            E("");
-
-            // ── RTSPR: вывод спрайта ──────────────────────────────
             E("; RTSPR — вывести спрайт (R0=x,R1=y,R2=w,R3=h,R4=ptr)");
             E("; Аргументы через стек, caller-cleans-up.");
             E("; R5=адрес видеопамяти, R4=ptr спрайта");
@@ -541,73 +510,6 @@ namespace CompMacro11
             E("");
 
             // ── RTPNUM: вывод числа на терминал ─────────────────
-            E("; RTPNUM — printnum(n). Таблица степеней сразу после RTS.");
-            E("RTPNUM:");
-            E("        MOV\tR5, -(SP)");
-            E("        MOV\tSP, R5");
-            E("        MOV\tR1, -(SP)");
-            E("        MOV\tR2, -(SP)");
-            E("        MOV\tR3, -(SP)");
-            E("        MOV\t4.(R5), R0");
-            // Отрицательные
-            E("        BPL\tRPNP");
-            E("        NEG\tR0");
-            E("        MOV\tR0, -(SP)");
-            E("        MOV\t#45., R0");             // '-'
-            E("RPNM:   TSTB\t@#177564");
-            E("        BPL\tRPNM");
-            E("        MOV\tR0, @#177566");
-            E("        MOV\t(SP)+, R0");
-            // Основной цикл с флагом ведущих нулей
-            E("RPNP:   MOV\t#RPNTB, R1");           // адрес таблицы
-            E("        CLR\tR3");                   // R3 = флаг: 0=ведущие нули
-            E("RPNLP:  MOV\t(R1)+, R2");
-            E("        BEQ\tRPNDN");
-            E("        MOV\t#48., -(SP)");          // '0' на стек (счётчик цифры)
-            E("RPNSB:  CMP\tR0, R2");
-            E("        BLO\tRPNPT");
-            E("        SUB\tR2, R0");
-            E("        INC\t(SP)");                 // инкремент ASCII цифры
-            E("        BR\tRPNSB");
-            // Пропустить ведущий ноль если флаг не установлен
-            E("RPNPT:  TST\tR3");                   // уже была ненулевая цифра?
-            E("        BNE\tRPNPR");               // да — печатать
-            E("        CMP\t(SP), #48.");           // текущая цифра == '0'?
-            E("        BEQ\tRPNSK");               // да — пропустить
-            E("RPNPR:  MOV\t(SP), R2");            // R2 = символ цифры
-            E("        INC\tR3");                   // флаг ненулевой цифры
-            E("RPNWT:  TSTB\t@#177564");
-            E("        BPL\tRPNWT");
-            E("        MOV\tR2, @#177566");
-            E("RPNSK:  TST\t(SP)+");               // pop цифру
-            E("        BR\tRPNLP");
-            // Конец — если R3==0 значит число было 0, вывести '0'
-            E("RPNDN:  TST\tR3");
-            E("        BNE\tRPNX");
-            E("        MOV\t#48., R2");
-            E("RPNZ:   TSTB\t@#177564");
-            E("        BPL\tRPNZ");
-            E("        MOV\tR2, @#177566");
-            E("RPNX:   MOV\t(SP)+, R3");
-            E("        MOV\t(SP)+, R2");
-            E("        MOV\t(SP)+, R1");
-            E("        MOV\t(SP)+, R5");
-            E("        RTS\tPC");
-            E("");
-            // Таблица степеней сразу после RTS — в той же CODE секции
-            E("RPNTB:  .WORD\t10000.,1000.,100.,10.,1.,0");
-            E("");
-
-            // ── RTGTIM: читать счётчик времени LTC ───────────────
-            E("; RTGTIM — getTimer(): читать @#177546 (LTC).");
-            E("; Возвращает текущее значение в R0.");
-            E("RTGTIM:");
-            E("        MOV\t@#177546, R0");
-            E("        RTS\tPC");
-            E("");
-
-
-            // ── RTRAND: генератор случайных чисел (LFSR 16-бит) ──
             E("; RTRAND — random(n): возвращает случайное число 0..n-1");
             E(";   4.(R5)=n");
             E("; LFSR период 65535, маска=0xB400=132000(oct)");
@@ -865,6 +767,45 @@ namespace CompMacro11
             E("        CMP\t10.(R5), #264.");     // y1 >= 264?
             E("        BGE\tRTLNR");              // оба ниже — выход
             E("RTLCK4:");
+            // ── Clamp координат до границ экрана ─────────────────
+            // x0: clamp(0, SCRW-1)
+            E("        TST\t4.(R5)");
+            E("        BPL\tRTLCK5");
+            E("        CLR\t4.(R5)");
+            E("RTLCK5:");
+            E("        CMP\t4.(R5), SCRW");
+            E("        BLT\tRTLCK6");
+            E("        MOV\tSCRW, 4.(R5)");
+            E("        DEC\t4.(R5)");
+            E("RTLCK6:");
+            // x1: clamp(0, SCRW-1)
+            E("        TST\t8.(R5)");
+            E("        BPL\tRTLCK7");
+            E("        CLR\t8.(R5)");
+            E("RTLCK7:");
+            E("        CMP\t8.(R5), SCRW");
+            E("        BLT\tRTLCK8");
+            E("        MOV\tSCRW, 8.(R5)");
+            E("        DEC\t8.(R5)");
+            E("RTLCK8:");
+            // y0: clamp(0, 263)
+            E("        TST\t6.(R5)");
+            E("        BPL\tRTLCK9");
+            E("        CLR\t6.(R5)");
+            E("RTLCK9:");
+            E("        CMP\t6.(R5), #264.");
+            E("        BLT\tRTLCKA");
+            E("        MOV\t#263., 6.(R5)");
+            E("RTLCKA:");
+            // y1: clamp(0, 263)
+            E("        TST\t10.(R5)");
+            E("        BPL\tRTLCKB");
+            E("        CLR\t10.(R5)");
+            E("RTLCKB:");
+            E("        CMP\t10.(R5), #264.");
+            E("        BLT\tRTLCKC");
+            E("        MOV\t#263., 10.(R5)");
+            E("RTLCKC:");
             // ── Брезенхэм ────────────────────────────────────────
             E("        SUB\t#8., SP");            // резервируем: dx dy sx sy
             // SP+0=sy SP+2=sx SP+4=dy SP+6=dx
@@ -3547,12 +3488,12 @@ namespace CompMacro11
             // с передачей аргументов через стек, кроме cls/init/pause.
             switch (c.FuncName)
             {
-                case "init":
                 case "cls":
-                    if (c.Args.Count != 1)
-                        throw new Exception($"Строка {c.Line}: {c.FuncName}(mode) требует 1 аргумент (0..3)");
-                    EC($"{c.FuncName}(mode): настройка экрана");
-                    GenExpr(c.Args[0]);   // R0 = mode
+                    if (c.Args.Count > 1)
+                        throw new Exception($"Строка {c.Line}: cls([mode]) принимает 0 или 1 аргумент");
+                    EC($"cls({ArgStr(c)}): инициализация экрана");
+                    if (c.Args.Count == 1) { GenExpr(c.Args[0]); }
+                    else { EI("CLR", "R0"); }
                     EI("JSR", "PC, RTCLS");
                     break;
 
@@ -3561,24 +3502,6 @@ namespace CompMacro11
                         throw new Exception($"Строка {c.Line}: pause() не принимает аргументов");
                     EC("pause(): пауза");
                     EI("JSR", "PC, RTPAUS");
-                    break;
-
-                case "box":
-                    if (c.Args.Count != 5)
-                        throw new Exception($"Строка {c.Line}: box(x,y,w,h,color) требует 5 аргументов");
-                    EC($"box({ArgStr(c)}): прямоугольник");
-                    // Вычислить color первым и сохранить на стек
-                    // (color = первый аргумент в стеке = дальше от вершины)
-                    GenExpr(c.Args[4]);          // R0 = индекс цвета
-                    EI("JSR", "PC, RTCLR");      // R0 = слово цвета
-                    EI("MOV", "R0, -(SP)");      // push color
-                    // Затем h, w, y, x (справа налево из оставшихся)
-                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // push h
-                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // push w
-                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // push y
-                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // push x
-                    EI("JSR", "PC, RTBOX");
-                    EI("ADD", "#10., SP");
                     break;
 
                 case "sprite":
@@ -3611,12 +3534,6 @@ namespace CompMacro11
                     EI("ADD", "#8., SP");
                     break;
 
-                case "getTimer":
-                    if (c.Args.Count != 0)
-                        throw new Exception($"Строка {c.Line}: getTimer() не принимает аргументов");
-                    EI("JSR", "PC, RTGTIM");   // результат в R0
-                    break;
-
                 case "random":
                     if (c.Args.Count != 1)
                         throw new Exception($"Строка {c.Line}: random(n) требует 1 аргумент");
@@ -3624,32 +3541,6 @@ namespace CompMacro11
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // n
                     EI("JSR", "PC, RTRAND");
                     EI("ADD", "#2., SP");
-                    break;
-
-                case "printnum":
-                    if (c.Args.Count != 1)
-                        throw new Exception($"Строка {c.Line}: printnum(n) требует 1 аргумент");
-                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)");
-                    EI("JSR", "PC, RTPNUM");
-                    EI("ADD", "#2., SP");
-                    break;
-
-                case "print":
-                    // print("text") — вывод строки через RTPRNT
-                    // print(expr)   — вывод числа (не реализовано пока — только строки)
-                    if (c.Args.Count != 1)
-                        throw new Exception($"Строка {c.Line}: print(str) требует 1 аргумент");
-                    if (c.Args[0] is StringLiteralExpr sle)
-                    {
-                        EC($"print(\"{sle.Value}\"): вывод строки");
-                        string lbl = InternString(sle.Value);
-                        EI("MOV", $"#{lbl}, R1");
-                        EI("JSR", "PC, RTPRNT");
-                    }
-                    else
-                    {
-                        throw new Exception($"Строка {c.Line}: print() принимает только строковые литералы");
-                    }
                     break;
 
                 case "point":
@@ -3706,8 +3597,8 @@ namespace CompMacro11
                     if (c.Args.Count != 6)
                         throw new Exception($"Строка {c.Line}: fill_grad_h(x,y,w,h,fg,bg) требует 6 аргументов");
                     EC($"fill_grad_h({ArgStr(c)}): горизонтальный градиент");
-                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // bg
-                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // fg
+                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // bg (args[5])
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // fg (args[4])
                     GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
                     GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
                     GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
@@ -3720,8 +3611,8 @@ namespace CompMacro11
                     if (c.Args.Count != 6)
                         throw new Exception($"Строка {c.Line}: fill_grad_v(x,y,w,h,fg,bg) требует 6 аргументов");
                     EC($"fill_grad_v({ArgStr(c)}): вертикальный градиент");
-                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // bg
-                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // fg
+                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // bg (args[5])
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // fg (args[4])
                     GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
                     GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
                     GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y

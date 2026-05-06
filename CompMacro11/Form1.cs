@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -158,22 +159,6 @@ namespace CompMacro11
             var btnExample = MakeBtn("Пример", 75, Color.FromArgb(60, 60, 60), 250);
             btnExample.Click += (_, __) => { _src.Text = LoadSample(); Highlight(); };
 
-            var btnCopy = MakeBtn("📋 Копировать", 115, Color.FromArgb(60, 60, 60), 333);
-            btnCopy.Click += (_, __) =>
-            {
-                if (string.IsNullOrEmpty(_out.Text)) return;
-                Clipboard.SetText(_out.Text);
-                btnCopy.Text = "✔ Скопировано";
-                btnCopy.ForeColor = C_OK;
-                var t = new System.Windows.Forms.Timer { Interval = 1500 };
-                t.Tick += (s2, e2) =>
-                {
-                    btnCopy.Text = "📋 Копировать";
-                    btnCopy.ForeColor = Color.White;
-                    t.Stop(); t.Dispose();
-                };
-                t.Start();
-            };
 
             var btnRun = MakeBtn("▶ Эмулятор", 105, Color.FromArgb(30, 90, 50), 456);
             btnRun.Click += (_, __) => RunInEmulator();
@@ -268,7 +253,7 @@ namespace CompMacro11
                 menu.Show(btnProject, new System.Drawing.Point(0, btnProject.Height));
             };
 
-            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, btnCopy, btnRun, btnHelp, btnSprites, btnProject, _status });
+            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, btnRun, btnHelp, btnSprites, btnProject, _status });
 
             // ── Заголовки ─────────────────────────────────────────
             var hdr = new Panel
@@ -458,16 +443,11 @@ namespace CompMacro11
 
             HelpT(r, "\n═══ ВСТРОЕННЫЕ ФУНКЦИИ ══════════════════════════════════\n", Color.FromArgb(86, 156, 214));
             HelpFn(r, "cls", "[mode]", "настройка экрана + очистка; mode 0..3 (0 по умолчанию)");
-            HelpFn(r, "init", "[mode]", "то же что cls([mode])");
             HelpFn(r, "pause", "", "пауза ~177777 итераций NOP");
-            HelpFn(r, "print", "\"text\"", "вывод строки на терминал");
-            HelpFn(r, "printnum", "n", "вывод числа на терминал");
             HelpFn(r, "waitkey", "", "ждать клавишу → код (блокирующее)");
             HelpFn(r, "getkey", "", "прочитать клавишу → код или 0 (неблокирующее)");
-            HelpFn(r, "getTimer", "", "счётчик времени LTC @#177546 → int (для анимации)");
             HelpFn(r, "sprite", "x,y,w,h,ptr", "спрайт из массива данных (MOV — перезапись)");
             HelpFn(r, "spriteOr", "x,y,w,h,ptr", "спрайт через BIS (OR с экраном — прозрачность)");
-            HelpFn(r, "box", "x,y,w,h,c", "прямоугольник словами; x,w в словах; c = 0-3");
 
             HelpT(r, "\n═══ basicGraphic — пакет попиксельной графики ═══════════\n", Color.FromArgb(78, 201, 176));
             HelpT(r, "  Фундамент: point(). Все остальные функции строятся поверх.\n", Color.FromArgb(150, 150, 150));
@@ -480,8 +460,9 @@ namespace CompMacro11
             HelpFn(r, "fill_rect", "x, y, w, h, c", "залитый прямоугольник. Нативный. Словами + пиксели по краям.");
             HelpFn(r, "fill_grad_h", "x, y, w, h, fg, bg", "горизонтальный градиент лево→право. fg→bg через 8 уровней.");
             HelpFn(r, "fill_grad_v", "x, y, w, h, fg, bg", "вертикальный градиент верх→низ. fg→bg через 8 уровней.");
+            HelpFn(r, "random", "n", "случайное число 0..n-1. LFSR, период 65535. Быстрый.");
 
-            HelpT(r, "\n═══ ЦВЕТА (индекс для box) ════════════════════════════\n", Color.FromArgb(86, 156, 214));
+            HelpT(r, "\n═══ ЦВЕТА ══════════════════════════════════════════════\n", Color.FromArgb(86, 156, 214));
             HelpKv(r, "0", "чёрный   (0)");
             HelpKv(r, "1", "синий    (255)");
             HelpKv(r, "2", "зелёный  (65280)");
@@ -832,7 +813,7 @@ namespace CompMacro11
         private static readonly HashSet<string> KwTypes = new HashSet<string> { "int", "void", "bool" };
         private static readonly HashSet<string> KwControl = new HashSet<string> { "if", "else", "while", "for", "return", "break", "continue" };
         private static readonly HashSet<string> KwBuiltin = new HashSet<string>(
-            new[]{"cls","box","sprite","spriteOr","point","circle","print",
+            new[]{"cls","sprite","spriteOr","point","circle","print",
                   "waitkey","getkey","getTimer","pause","init","fillhline"})
         { };
         static Form1()
@@ -1041,7 +1022,7 @@ namespace CompMacro11
 
 // Нарисовать одну клетку поля
 void drawCell(int x, int y, int color) {
-    box(x * 4, y * 16, 4, 16, color);
+    fill_rect(x * 32, y * 16, 32, 16, color);
 }
 
 // Отобразить героя в позиции (hx, hy)
@@ -1174,22 +1155,26 @@ int main(void) {
         private void ProjectSaveAs()
         {
             if (_project == null) return;
-            var dlg = new SaveFileDialog
+            _project.WriteMainCode(_src.Text);
+
+            // Выбираем папку назначения
+            var dlg = new FolderBrowserDialog
             {
-                Title = "Сохранить проект как",
-                Filter = "Проект Mini-C (*.pkc)|*.pkc",
-                DefaultExt = "pkc",
-                FileName = _project.Name + ".pkc"
+                Description = "Выберите папку для сохранения копии проекта",
+                ShowNewFolderButton = true,
+                SelectedPath = Path.GetDirectoryName(_project.ProjectDir)
             };
-            if (dlg.ShowDialog(this) == DialogResult.OK)
-            {
-                _project.WriteMainCode(_src.Text);
-                _project.SaveAs(dlg.FileName);
-                RecentProjects.Add(dlg.FileName);
-                AppEnvironment.LastProjectPath = dlg.FileName;
-                UpdateTitle();
-                SetStatus("✓ Сохранено как: " + dlg.FileName, false);
-            }
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            // Новый .pkc будет: выбранная папка / имя проекта / имя.pkc
+            string newProjectDir = Path.Combine(dlg.SelectedPath, _project.Name);
+            string newPkcPath = Path.Combine(newProjectDir, _project.Name + ".pkc");
+
+            _project.SaveAs(newPkcPath);
+            RecentProjects.Add(newPkcPath);
+            AppEnvironment.LastProjectPath = newPkcPath;
+            UpdateTitle();
+            SetStatus("✓ Сохранено как: " + newPkcPath, false);
         }
 
         private void ProjectClose()
