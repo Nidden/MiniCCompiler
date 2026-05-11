@@ -5,7 +5,7 @@ using System.Text;
 namespace CompMacro11
 {
     /// <summary>
-    /// Кодогенератор Mini-C → Macro-11 (PDP-11)
+    /// Кодогенератор Mini-C → Macro-11 ( PDP-11 )
     ///
     /// Соглашение о вызовах (caller-cleans-up):
     ///   Аргументы: справа налево, MOV arg, -(SP)
@@ -86,10 +86,10 @@ namespace CompMacro11
         //   random(n)          → RTRAND
         private static readonly HashSet<string> _builtins = new HashSet<string>
         {
-            "cls", "pause",
-            "sprite", "spriteOr",
+            "cls", "init", "pause",
+            "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "rect", "fill_rect", "fill_grad_h", "fill_grad_v", "random", "circle"
+            "point", "line", "rect", "fill_rect", "fill_dither", "fill_gradient", "circle", "print", "printnum", "getTimer"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -151,24 +151,30 @@ namespace CompMacro11
             // Зарезервировать рантайм-метки
             foreach (var lbl in new[] {
                 "RTSTTBL","RTTBL1","RTPAUS","RTPS0","RTPRNT","RTPRN1","RTPRN2",
-                "RTCLS","RTCLS1","RTCSTB","RTCSC0","RTCSC1","RTCSC2","RTCSC3",
-                                "RTSPR","RTSP1","RTSP2","RTSPB","RTSB1","RTSB2",
-
-                "RTRAND","RRND1","RRND2","RRND3","RRND4","RNDSEED",
+                "RTCLS","RTCSTB","RTCSC0","RTCSC1","RTCSC2","RTCSC3",
+                "RTBOX","RTBX1","RTBX2",
+                "RTSPR","RTSP1","RTSP2","RTSPS","RTSPS1","RTSPE1","RTSPL1","RTSPL3","RTSPC1","RTSPO1","RTSPX","SPBUF","RTSPB","RTSB1","RTSB2",
+                "RTPNUM","RPNP","RPNM","RPNLP","RPNSB","RPNPT","RPNPR","RPNWT","RPNSK","RPNDN","RPNZ","RPNX","RPNTB","RPNPV",
+                "RTGTIM",
                 "RTWKEY","RTGKEY","RTGK1",
                 "RTCLRT","RTCLR",
                 "RTMCLR","RTMC1","RTMCPY","RTCP1",
                 "RTPTBL","RPTL1","RPTL2","RPTL3","RTPPNT","RPPNR",
-                "RTLINE","RTLCK1","RTLCK2","RTLCK3","RTLCK4","RTLCK5","RTLCK6","RTLCK7","RTLCK8","RTLCK9","RTLCKA","RTLCKB","RTLCKC","RTLNA","RTLNB","RTLNC","RTLND","RTLNE","RTLNF","RTLNG","RTLNL","RTLNX","RTLNR",
+                "RTLINE","RTLCK1","RTLCK2","RTLCK3","RTLCK4","RTLNA","RTLNB","RTLNC","RTLND","RTLNE","RTLNF","RTLNG","RTLNL","RTLNX",
                 "RTRECT",
                 "RTFRCT","RFCK1","RFCK2","RFCK3","RFCK4",
                 "RFCTY","RFCTW","RFCTL0","RFCTL","RFCTR0","RFCTRP","RFCTN",
                 "RFCTSM","RFCSMY","RFCSMX","RFCTOK","RFCTEX",
                 "FCTAB",
-                "RTDITH","RDCK1","RDCK2","RDCK3","RDCK4","RDCKHY","RDITHY","RDITHX","RDITHN","RDITHEX",
-                "RTGRDH","RGRDHL","RGRDH1","RTGRDV","RGRDVL","RGRDV1",
+                "RTDITH","RDCK1","RDCK2","RDCK3","RDCK4","RDCKH","RDITHY","RDITHX","RDITHEX",
+                "RTGRAD","RGRADEX","RGCALL",
+                "RGGRLR","RGLRL","RGLR1",
+                "RGGRRL","RGRLL","RGRL1",
+                "RGGRTB","RGTBL","RGTB1",
+                "RGGRBT","RGBTL","RGBT1",
                 "DTAB",
-"XWRD","CM0","CM1","CM2","CM3","CTAB","SCRW",
+                "RTCRC","RCRC1","RCRC1A","RCRC2","RCRC3","RCRC9",
+                "XWRD","CM0","CM1","CM2","CM3","CTAB",
                 "DSPST","KBDRT","KBDLT","KBDUP","KBDDN" })
                 _usedLabels.Add(lbl);
 
@@ -374,16 +380,10 @@ namespace CompMacro11
             E("        MOV\tR0, -(SP)");
             E("        MOV\tR1, -(SP)");
             E("        BIS\t#010000, @#44");
-            E("        MOV\t(SP)+, R1");
-            E("        MOV\t(SP)+, R0");
-            E("        MOV\tR1, -(SP)");
+            E("        MOV\t(SP)+, R1");              // восстановить R1
+            E("        MOV\t(SP)+, R0");              // восстановить mode
+            E("        MOV\tR1, -(SP)");              // теперь сохраняем R1 для дальнейшей работы
             E("        BIC\t#177774, R0");
-            // Устанавливаем SCRW: режимы 1,3 = 640px, 0,2 = 320px
-            E("        MOV\t#320., SCRW");           // по умолчанию 320
-            E("        BIT\t#1., R0");               // бит 0 = 1 → режим 1 или 3 → 640px
-            E("        BEQ\tRTCLS1");
-            E("        MOV\t#640., SCRW");
-            E("RTCLS1:");
             E("        ASL\tR0");
             E("        MOV\tRTCSTB(R0), R1");
             E("        JSR\tPC, RTPRNT");
@@ -438,39 +438,159 @@ namespace CompMacro11
             E("");
 
             // ── RTBOX: залить прямоугольник цветом ───────────────
-            E("; RTSPR — вывести спрайт (R0=x,R1=y,R2=w,R3=h,R4=ptr)");
+            E("; RTBOX — залить прямоугольник (R0=x,R1=y,R2=w,R3=h,R4=color)");
             E("; Аргументы через стек, caller-cleans-up.");
-            E("; R5=адрес видеопамяти, R4=ptr спрайта");
-            E("; R2=ширина(слов), R3=высота(строк)");
-            E("; R0=шаг строки (80-w)");
-            E("; Внутренний цикл: DEC+BNE вместо SOB — нет ограничения 126 байт");
-            E("RTSPR:");
+            E("RTBOX:");
             E("        MOV\tR5, -(SP)");
             E("        MOV\tSP, R5");
-            E("        MOV\t4.(R5),  R0");   // x
-            E("        MOV\t6.(R5),  R1");   // y
-            E("        MOV\t8.(R5),  R2");   // w
-            E("        MOV\t10.(R5), R3");   // h
-            E("        MOV\t12.(R5), R4");   // ptr
+            E("        MOV\t4.(R5),  R0");
+            E("        MOV\t6.(R5),  R1");
+            E("        MOV\t8.(R5),  R2");
+            E("        MOV\t10.(R5), R3");
+            E("        MOV\t12.(R5), R4");
             E("        ROL\tR1");
             E("        MOV\tDSPST(R1), R5");
             E("        ADD\tR0, R5");
             E("        MOV\t#80., R0");
-            E("        SUB\tR2, R0");        // R0 = 80-w
-            E("RTSP1:  MOV\tR2, R1");
-            E("RTSP2:  MOV\tR5, @#176640");
-            E("        MOV\t(R4)+, @#176642");
+            E("        SUB\tR2, R0");
+            E("RTBX1:  MOV\tR2, R1");
+            E("RTBX2:  MOV\tR5, @#176640");
+            E("        MOV\tR4, @#176642");
             E("        INC\tR5");
             E("        DEC\tR1");
-            E("        BNE\tRTSP2");
+            E("        BNE\tRTBX2");
             E("        ADD\tR0, R5");
             E("        DEC\tR3");
-            E("        BNE\tRTSP1");
+            E("        BNE\tRTBX1");
             E("        MOV\t(SP)+, R5");
             E("        RTS\tPC");
             E("");
-
-            // ── RTSPB: spriteOr — вывод спрайта через BIS ────────
+            // ── RTSPR: вывод спрайта ──────────────────────────────
+            E("; RTSPR — sprite(x,y,w,h,ptr)");
+            E(";   x,y в пикселях. w в пикселях кратно 8. h строк.");
+            E(";   x кратен 8: быстрый путь — прямое копирование слов.");
+            E(";   x не кратен 8: буферный путь — строка в SPBUF[9],");
+            E(";     сдвиг вправо на s=x&7 бит через цепочку ROR,");
+            E(";     затем вывод w/8+1 слов. Ширина спрайта <= 64px.");
+            E("RTSPR:");
+            E("        MOV	R5, -(SP)");
+            E("        MOV	SP, R5");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	R3, -(SP)");
+            E("        MOV	R4, -(SP)");
+            E("        MOV	4.(R5),  R0");   // x
+            E("        MOV	6.(R5),  R1");   // y
+            E("        MOV	8.(R5),  R2");   // w (пиксели)
+            E("        MOV	10.(R5), R3");   // h (строк)
+            E("        MOV	12.(R5), R4");   // ptr
+            // w/8 → слов
+            E("        ASR	R2"); E("        ASR	R2"); E("        ASR	R2");
+            // Адрес строки VRAM
+            E("        ASL	R1");
+            E("        MOV	DSPST(R1), R5");
+            // s = x & 7
+            E("        MOV	R0, R1");
+            E("        BIC	#177770, R1");   // R1 = s
+            E("        BNE	RTSPS");         // s!=0 → буферный путь
+            // ── БЫСТРЫЙ ПУТЬ: x кратен 8 ─────────────────────────
+            // R5=начало строки, R0=x, R2=words, R3=h, R4=ptr
+            E("        ASR	R0"); E("        ASR	R0"); E("        ASR	R0");
+            E("        ADD	R0, R5");        // R5 = адрес первого слова
+            E("        MOV	#80., R0");
+            E("        SUB	R2, R0");        // R0 = шаг строки
+            E("RTSP1:  MOV	R2, R1");        // R1 = счётчик слов
+            E("RTSP2:  MOV	R5, @#176640");
+            E("        MOV	(R4)+, @#176642");
+            E("        INC	R5");
+            E("        DEC	R1");
+            E("        BNE	RTSP2");
+            E("        ADD	R0, R5");
+            E("        DEC	R3");
+            E("        BNE	RTSP1");
+            E("        BR	RTSPX");
+            // ── БУФЕРНЫЙ ПУТЬ: x не кратен 8 ─────────────────────
+            // R1=s, R0=x, R2=words, R3=h, R4=ptr, R5=начало строки
+            E("RTSPS:");
+            E("        ASR	R0"); E("        ASR	R0"); E("        ASR	R0");
+            E("        ADD	R0, R5");
+            E("        MOV	#80., R0");
+            E("        SUB	R2, R0");
+            E("        DEC	R0");
+            E("        MOV	R1, -(SP)");     // push s
+            E("        MOV	R0, -(SP)");     // push step
+            E("        MOV	R3, -(SP)");     // push h; SP+0=h SP+2=step SP+4=s
+            E("RTSPL1:");
+            E("        MOV	R2, R1");
+            E("        MOV	#SPBUF, R0");
+            E("RTSPC1: MOV	(R4)+, (R0)+");
+            E("        DEC	R1");
+            E("        BNE	RTSPC1");
+            E("        CLR	(R0)");
+            E("        MOV	4.(SP), R1");    // R1 = s
+            E("        BEQ	RTSPE1");
+            // RORB справа налево: carry из бит0 правого байта → бит7 левого
+            // CLC перед каждым проходом
+            E("RTSPS1: CLC");
+            E("        ROLB	SPBUF+1.");
+            E("        ROLB	SPBUF+3.");
+            E("        ROLB	SPBUF+5.");
+            E("        ROLB	SPBUF+7.");
+            E("        ROLB	SPBUF+9.");
+            E("        ROLB	SPBUF+11.");
+            E("        ROLB	SPBUF+13.");
+            E("        ROLB	SPBUF+15.");
+            E("        ROLB	SPBUF+17.");
+            E("        ROLB	SPBUF+19.");
+            E("        ROLB	SPBUF+21.");
+            E("        ROLB	SPBUF+23.");
+            E("        ROLB	SPBUF+25.");
+            E("        ROLB	SPBUF+27.");
+            E("        ROLB	SPBUF+29.");
+            E("        CLC");
+            E("        ROLB	SPBUF+0.");
+            E("        ROLB	SPBUF+2.");
+            E("        ROLB	SPBUF+4.");
+            E("        ROLB	SPBUF+6.");
+            E("        ROLB	SPBUF+8.");
+            E("        ROLB	SPBUF+10.");
+            E("        ROLB	SPBUF+12.");
+            E("        ROLB	SPBUF+14.");
+            E("        ROLB	SPBUF+16.");
+            E("        ROLB	SPBUF+18.");
+            E("        ROLB	SPBUF+20.");
+            E("        ROLB	SPBUF+22.");
+            E("        ROLB	SPBUF+24.");
+            E("        ROLB	SPBUF+26.");
+            E("        ROLB	SPBUF+28.");
+            E("        DEC	R1");
+            E("        BEQ	RTSPE1");
+            E("        JMP	RTSPS1");
+            E("RTSPE1: MOV	R2, R1");
+            E("        INC	R1");
+            E("        MOV	#SPBUF, R0");
+            E("RTSPO1: MOV	R5, @#176640");
+            E("        MOV	(R0)+, @#176642");
+            E("        INC	R5");
+            E("        DEC	R1");
+            E("        BNE	RTSPO1");
+            E("        ADD	2.(SP), R5");    // step
+            E("        DEC	0.(SP)");        // h--
+            E("        BEQ	RTSPL3");
+            E("        JMP	RTSPL1");
+            E("RTSPL3: TST	(SP)+");
+            E("        TST	(SP)+");
+            E("        TST	(SP)+");
+            E("RTSPX:");
+            E("        MOV	(SP)+, R4");
+            E("        MOV	(SP)+, R3");
+            E("        MOV	(SP)+, R2");
+            E("        MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        MOV	(SP)+, R5");
+            E("        RTS	PC");
+            E("");
             E("; RTSPB — spriteOr(x,y,w,h,ptr): BIS спрайта с VRAM");
             E("; 0-биты в спрайте = прозрачность, 1-биты = установить.");
             E("; Внутренний цикл: addr→read VRAM→BIS sprite→write");
@@ -510,37 +630,72 @@ namespace CompMacro11
             E("");
 
             // ── RTPNUM: вывод числа на терминал ─────────────────
-            E("; RTRAND — random(n): возвращает случайное число 0..n-1");
-            E(";   4.(R5)=n");
-            E("; LFSR период 65535, маска=0xB400=132000(oct)");
-            E("RTRAND:");
+            E("; RTPNUM — printnum(n). Таблица степеней сразу после RTS.");
+            E("RTPNUM:");
             E("        MOV\tR5, -(SP)");
             E("        MOV\tSP, R5");
             E("        MOV\tR1, -(SP)");
-            E("        MOV\tRNDSEED, R0");           // R0 = seed
-            // LFSR: C = seed&1 (через ROR), seed>>=1, if C: seed ^= 0xB400
-            E("        CLC");                        // C=0
-            E("        ROR\tR0");                    // seed>>=1, старый бит0 → C
-            E("        BCC\tRRND1");                 // бит был 0 → не XOR
-            E("        MOV\t#132000, R1");           // маска 0xB400
-            E("        XOR\tR1, R0");                // seed ^= 0xB400 (XOR reg,dst)
-            E("RRND1:");
-            E("        BNE\tRRND2");                 // seed не должен быть 0
-            E("        INC\tR0");
-            E("RRND2:");
-            E("        MOV\tR0, RNDSEED");
-            E("        MOV\t4.(R5), R1");            // R1 = n
-            E("        BEQ\tRRND4");                 // n==0 → возврат 0
-            E("RRND3:");
-            E("        CMP\tR0, R1");
-            E("        BLO\tRRND4");
-            E("        SUB\tR1, R0");
-            E("        BR\tRRND3");
-            E("RRND4:");
+            E("        MOV\tR2, -(SP)");
+            E("        MOV\tR3, -(SP)");
+            E("        MOV\t4.(R5), R0");
+            // Отрицательные
+            E("        BPL\tRPNP");
+            E("        NEG\tR0");
+            E("        MOV\tR0, -(SP)");
+            E("        MOV\t#45., R0");             // '-'
+            E("RPNM:   TSTB\t@#177564");
+            E("        BPL\tRPNM");
+            E("        MOV\tR0, @#177566");
+            E("        MOV\t(SP)+, R0");
+            // Основной цикл с флагом ведущих нулей
+            E("RPNP:   MOV\t#RPNTB, R1");           // адрес таблицы
+            E("        CLR\tR3");                   // R3 = флаг: 0=ведущие нули
+            E("RPNLP:  MOV\t(R1)+, R2");
+            E("        BEQ\tRPNDN");
+            E("        MOV\t#48., -(SP)");          // '0' на стек (счётчик цифры)
+            E("RPNSB:  CMP\tR0, R2");
+            E("        BLO\tRPNPT");
+            E("        SUB\tR2, R0");
+            E("        INC\t(SP)");                 // инкремент ASCII цифры
+            E("        BR\tRPNSB");
+            // Пропустить ведущий ноль если флаг не установлен
+            E("RPNPT:  TST\tR3");                   // уже была ненулевая цифра?
+            E("        BNE\tRPNPR");               // да — печатать
+            E("        CMP\t(SP), #48.");           // текущая цифра == '0'?
+            E("        BEQ\tRPNSK");               // да — пропустить
+            E("RPNPR:  MOV\t(SP), R2");            // R2 = символ цифры
+            E("        INC\tR3");                   // флаг ненулевой цифры
+            E("RPNWT:  TSTB\t@#177564");
+            E("        BPL\tRPNWT");
+            E("        MOV\tR2, @#177566");
+            E("RPNSK:  TST\t(SP)+");               // pop цифру
+            E("        BR\tRPNLP");
+            // Конец — если R3==0 значит число было 0, вывести '0'
+            E("RPNDN:  TST\tR3");
+            E("        BNE\tRPNX");
+            E("        MOV\t#48., R2");
+            E("RPNZ:   TSTB\t@#177564");
+            E("        BPL\tRPNZ");
+            E("        MOV\tR2, @#177566");
+            E("RPNX:   MOV\t(SP)+, R3");
+            E("        MOV\t(SP)+, R2");
             E("        MOV\t(SP)+, R1");
             E("        MOV\t(SP)+, R5");
             E("        RTS\tPC");
             E("");
+            // Таблица степеней сразу после RTS — в той же CODE секции
+            E("RPNTB:  .WORD\t10000.,1000.,100.,10.,1.,0");
+            E("");
+
+            // ── RTGTIM: читать счётчик времени LTC ───────────────
+            E("; RTGTIM — getTimer(): читать @#177546 (LTC).");
+            E("; Возвращает текущее значение в R0.");
+            E("RTGTIM:");
+            E("        MOV\t@#177546, R0");
+            E("        RTS\tPC");
+            E("");
+
+            // ── RTWKEY: блокирующее чтение (ждёт клавишу) ───────
             E("; RTWKEY / waitkey() — крутится пока не придёт символ.");
             E("; BIC #177600 убирает бит чётности (parity) УКНЦ.");
             E("RTWKEY:");
@@ -705,7 +860,7 @@ namespace CompMacro11
             E("        BMI\tRPPNR");
             E("        TST\tR1");               // py < 0?
             E("        BMI\tRPPNR");
-            E("        CMP	R0, SCRW");         // px >= scrw?
+            E("        CMP\tR0, #640.");        // px >= 640?
             E("        BGE\tRPPNR");
             E("        CMP\tR1, #264.");        // py >= 264?
             E("        BGE\tRPPNR");
@@ -747,65 +902,26 @@ namespace CompMacro11
             E("        TST\t4.(R5)");             // x0 < 0?
             E("        BPL\tRTLCK1");
             E("        TST\t8.(R5)");             // x1 < 0?
-            E("        BMI\tRTLNR");              // оба левее — выход
+            E("        BMI\tRTLNX");              // оба левее — выход
             E("RTLCK1:");
-            // Оба x >= SCRW?
-            E("        CMP	4.(R5), SCRW");      // x0 >= scrw?
+            // Оба x >= 320?
+            E("        CMP\t4.(R5), #320.");      // x0 >= 320?
             E("        BLT\tRTLCK2");
-            E("        CMP	8.(R5), SCRW");      // x1 >= scrw?
-            E("        BGE\tRTLNR");              // оба правее — выход
+            E("        CMP\t8.(R5), #320.");      // x1 >= 320?
+            E("        BGE\tRTLNX");              // оба правее — выход
             E("RTLCK2:");
             // Оба y < 0?
             E("        TST\t6.(R5)");             // y0 < 0?
             E("        BPL\tRTLCK3");
             E("        TST\t10.(R5)");            // y1 < 0?
-            E("        BMI\tRTLNR");              // оба выше — выход
+            E("        BMI\tRTLNX");              // оба выше — выход
             E("RTLCK3:");
             // Оба y >= 264?
             E("        CMP\t6.(R5), #264.");      // y0 >= 264?
             E("        BLT\tRTLCK4");
             E("        CMP\t10.(R5), #264.");     // y1 >= 264?
-            E("        BGE\tRTLNR");              // оба ниже — выход
+            E("        BGE\tRTLNX");              // оба ниже — выход
             E("RTLCK4:");
-            // ── Clamp координат до границ экрана ─────────────────
-            // x0: clamp(0, SCRW-1)
-            E("        TST\t4.(R5)");
-            E("        BPL\tRTLCK5");
-            E("        CLR\t4.(R5)");
-            E("RTLCK5:");
-            E("        CMP\t4.(R5), SCRW");
-            E("        BLT\tRTLCK6");
-            E("        MOV\tSCRW, 4.(R5)");
-            E("        DEC\t4.(R5)");
-            E("RTLCK6:");
-            // x1: clamp(0, SCRW-1)
-            E("        TST\t8.(R5)");
-            E("        BPL\tRTLCK7");
-            E("        CLR\t8.(R5)");
-            E("RTLCK7:");
-            E("        CMP\t8.(R5), SCRW");
-            E("        BLT\tRTLCK8");
-            E("        MOV\tSCRW, 8.(R5)");
-            E("        DEC\t8.(R5)");
-            E("RTLCK8:");
-            // y0: clamp(0, 263)
-            E("        TST\t6.(R5)");
-            E("        BPL\tRTLCK9");
-            E("        CLR\t6.(R5)");
-            E("RTLCK9:");
-            E("        CMP\t6.(R5), #264.");
-            E("        BLT\tRTLCKA");
-            E("        MOV\t#263., 6.(R5)");
-            E("RTLCKA:");
-            // y1: clamp(0, 263)
-            E("        TST\t10.(R5)");
-            E("        BPL\tRTLCKB");
-            E("        CLR\t10.(R5)");
-            E("RTLCKB:");
-            E("        CMP\t10.(R5), #264.");
-            E("        BLT\tRTLCKC");
-            E("        MOV\t#263., 10.(R5)");
-            E("RTLCKC:");
             // ── Брезенхэм ────────────────────────────────────────
             E("        SUB\t#8., SP");            // резервируем: dx dy sx sy
             // SP+0=sy SP+2=sx SP+4=dy SP+6=dx
@@ -876,9 +992,8 @@ namespace CompMacro11
             E("        ADD\t0.(SP), R1");        // y += sy
             E("RTLNG:");
             E("        BR\tRTLNL");
-            E("RTLNX:");                         // эпилог после Брезенхэма
+            E("RTLNX:");                         // эпилог
             E("        ADD\t#8., SP");            // убрать dx dy sx sy
-            E("RTLNR:");                          // ранний выход (reject) — стек не менялся
             E("        MOV\t(SP)+, R3");
             E("        MOV\t(SP)+, R2");
             E("        MOV\t(SP)+, R1");
@@ -980,9 +1095,9 @@ namespace CompMacro11
             E("        CLR\tR1");
             E("RFCK2:");
             // if x2 > 320: x2 = 320
-            E("        CMP	R2, SCRW");
+            E("        CMP\tR2, #320.");
             E("        BLE\tRFCK3");
-            E("        MOV	SCRW, R2");
+            E("        MOV\t#320., R2");
             E("RFCK3:");
             // if y2 > 264: y2 = 264
             E("        CMP\tR3, #264.");
@@ -1007,7 +1122,7 @@ namespace CompMacro11
             // Используем cx,cy,cw,ch вместо аргументов R5
 
             // Проверяем cw < 8  (R2=cw после клиппинга)
-            E("        CMP\tR2, #8.");               // cw < 8?
+            E("        CMP\tR2, #10.");              // cw < 8?
             E("        BLT\tRFCTSM");
 
             // ── Вычисляем x_left, x_right, left_w, right_w, words ─
@@ -1166,223 +1281,202 @@ namespace CompMacro11
             E("        MOV\t(SP)+, R0");
             E("        MOV\t(SP)+, R5");
             E("        RTS\tPC");
+            // ── RTGRAD: градиентная заливка ───────────────────────
+            E("; RTGRAD — fill_gradient(x,y,w,h,fg,bg,dir)");
+            E(";   4.(R5)=x 6.(R5)=y 8.(R5)=w 10.(R5)=h");
+            E(";   12.(R5)=fg 14.(R5)=bg 16.(R5)=dir");
+            E("; dir: 0=лево→право 1=право→лево 2=верх→низ 3=низ→верх");
+            E("; Точка входа — выбор подпрограммы по dir");
+            E("; Подпрограммы: RGGRLR RGGRRL RGGRTB RGGRBT");
+            E("; Каждая пишет прямо в VRAM через RTDITH (8 вызовов)");
+            E("RTGRAD:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\tR0, -(SP)");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\tR2, -(SP)");
+            E("        MOV\tR3, -(SP)");
+            E("        MOV\tR4, -(SP)");
+            E("        MOV\t16.(R5), R0");           // dir
+            E("        BEQ\tRGGRLR");                // 0 = лево→право
+            E("        CMP\tR0, #1.");
+            E("        BEQ\tRGGRRL");                // 1 = право→лево
+            E("        CMP\tR0, #2.");
+            E("        BEQ\tRGGRTB");                // 2 = верх→низ
+            E("        BR\tRGGRBT");                 // 3 = низ→верх
 
-            // ── RTDITH: паттерновая заливка ───────────────────────
-            E("; RTDITH — fill_dither(x,y,w,h,pattern,fg,bg)");
-            E(";   4.(R5)=x 6.(R5)=y 8.(R5)=w 10.(R5)=h 12.(R5)=pat 14.(R5)=fg 16.(R5)=bg");
-            E("; Стек: SP+0=pat_base SP+2=x_sw SP+4=words SP+6=h SP+8=fg_mask SP+10=bg_mask");
-            E("RTDITH:");
-            E("        MOV	R5, -(SP)");
-            E("        MOV	SP, R5");
-            E("        MOV	R0, -(SP)");
-            E("        MOV	R1, -(SP)");
-            E("        MOV	R2, -(SP)");
-            E("        MOV	R3, -(SP)");
-            E("        MOV	R4, -(SP)");
-            E("        MOV	4.(R5), R0");
-            E("        MOV	6.(R5), R1");
-            E("        MOV	R0, R2");
-            E("        ADD	8.(R5), R2");
-            E("        MOV	R1, R3");
-            E("        ADD	10.(R5), R3");
-            E("        TST	R0");
-            E("        BPL	RDCK1");
-            E("        CLR	R0");
-            E("RDCK1:  TST	R1");
-            E("        BPL	RDCK2");
-            E("        CLR	R1");
-            E("RDCK2:  CMP	R2, SCRW");
-            E("        BLE	RDCK3");
-            E("        MOV	SCRW, R2");
-            E("RDCK3:  CMP	R3, #264.");
-            E("        BLE	RDCK4");
-            E("        MOV	#264., R3");
-            E("RDCK4:");
-            E("        CMP	R2, R0");
-            E("        BLE	RDITHEX");
-            E("        CMP	R3, R1");
-            E("        BLE	RDITHEX");
-            E("        MOV	16.(R5), R4");
-            E("        ASL	R4");
-            E("        MOV	FCTAB(R4), R4");
-            E("        MOV	R4, -(SP)");
-            E("        MOV	14.(R5), R4");
-            E("        ASL	R4");
-            E("        MOV	FCTAB(R4), R4");
-            E("        MOV	R4, -(SP)");
-            E("        SUB	R1, R3");
-            E("        MOV	R3, -(SP)");
-            E("        BIC	#7, R0");
-            E("        ADD	#7., R2");
-            E("        BIC	#7, R2");
-            E("        MOV	R2, R4");
-            E("        SUB	R0, R4");
-            E("        ASR	R4");
-            E("        ASR	R4");
-            E("        ASR	R4");
-            E("        MOV	R4, -(SP)");
-            E("        ASR	R0");
-            E("        ASR	R0");
-            E("        ASR	R0");
-            E("        MOV	R0, -(SP)");
-            E("        MOV	12.(R5), R4");
-            E("        ASL	R4");
-            E("        ASL	R4");
-            E("        ASL	R4");
-            E("        ASL	R4");
-            E("        MOV	R4, -(SP)");
-            E("        TST	R1");
-            E("        BPL	RDCKHY");
-            E("        CLR	R1");
-            E("RDCKHY: ASL	R1");
-            E("RDITHY:");
-            E("        MOV	R1, R0");
-            E("        ASR	R0");
-            E("        BIC	#177770, R0");
-            E("        ASL	R0");
-            E("        ADD	0.(SP), R0");
-            E("        MOV	DTAB(R0), R0");
-            E("        MOV	R0, R2");
-            E("        COM	R2");
-            E("        MOV	8.(SP), R3");
-            E("        BIC	R2, R3");
-            E("        MOV	10.(SP), R4");
-            E("        BIC	R0, R4");
-            E("        BIS	R4, R3");
-            E("        MOV	DSPST(R1), R4");
-            E("        ADD	2.(SP), R4");
-            E("        MOV	4.(SP), R2");
-            E("        BEQ	RDITHN");
-            E("RDITHX:");
-            E("        MOV	R4, @#176640");
-            E("        MOV	R3, @#176642");
-            E("        INC	R4");
-            E("        DEC	R2");
-            E("        BNE	RDITHX");
-            E("RDITHN:");
-            E("        ADD	#2., R1");
-            E("        DEC	6.(SP)");
-            E("        BNE	RDITHY");
-            E("        ADD	#12., SP");
-            E("RDITHEX:");
-            E("        MOV	(SP)+, R4");
-            E("        MOV	(SP)+, R3");
-            E("        MOV	(SP)+, R2");
-            E("        MOV	(SP)+, R1");
-            E("        MOV	(SP)+, R0");
-            E("        MOV	(SP)+, R5");
-            E("        RTS	PC");
-            E("");
-            // ── RTGRDH: горизонтальный градиент (fill_grad_h) ────
-            E("; RTGRDH — fill_grad_h(x,y,w,h,fg,bg)");
-            E(";   4.(R5)=x 6.(R5)=y 8.(R5)=w 10.(R5)=h 12.(R5)=fg 14.(R5)=bg");
-            E("; 8 вертикальных полос шириной ~w/8, pat 0→7 слева направо");
-            E("; base=w>>3, rem=w&7, Брезенхэм для остатка");
-            E("; Стек: SP+0=cnt SP+2=accum SP+4=rem SP+6=base SP+8=cx");
-            E("RTGRDH:");
-            E("        MOV	R5, -(SP)");
-            E("        MOV	SP, R5");
-            E("        MOV	R0, -(SP)");
-            E("        MOV	R1, -(SP)");
-            E("        MOV	R2, -(SP)");
-            E("        MOV	R3, -(SP)");
-            E("        MOV	R4, -(SP)");
-            E("        MOV	8.(R5), R2");            // w
-            E("        MOV	R2, R3");
-            E("        ASR	R3"); E("        ASR	R3"); E("        ASR	R3"); // base=w>>3
-            E("        BIC	#177770, R2");           // rem=w&7
-            E("        MOV	4.(R5), -(SP)");         // push cx=x    SP+8
-            E("        MOV	R3, -(SP)");             // push base    SP+6
-            E("        MOV	R2, -(SP)");             // push rem     SP+4
-            E("        CLR	-(SP)");                 // push accum=0 SP+2
-            E("        CLR	R4");                    // R4=pat=0
-            E("        MOV	#8., -(SP)");            // push cnt=8   SP+0
-            E("RGRDHL:");
-            E("        MOV	6.(SP), R2");            // R2=base=pw
-            E("        ADD	4.(SP), 2.(SP)");        // accum+=rem
-            E("        CMP	2.(SP), #8.");
-            E("        BLT	RGRDH1");
-            E("        INC	R2");
-            E("        SUB	#8., 2.(SP)");
-            E("RGRDH1:");
-            // Вызов fill_dither(cx, y, pw, h, pat, fg, bg)
-            E("        MOV	14.(R5), -(SP)");        // bg
-            E("        MOV	12.(R5), -(SP)");        // fg
-            E("        MOV	R4, -(SP)");             // pat
-            E("        MOV	10.(R5), -(SP)");        // h
-            E("        MOV	R2, -(SP)");             // pw
-            E("        MOV	6.(R5), -(SP)");         // y
-            E("        MOV	20.(SP), -(SP)");        // cx (SP+8 → +20 after 6 pushes)
-            E("        JSR	PC, RTDITH");
-            E("        ADD	#14., SP");
-            E("        ADD	R2, 8.(SP)");            // cx += pw
-            E("        INC	R4");                    // pat++
-            E("        DEC	0.(SP)");                // cnt--
-            E("        BNE	RGRDHL");
-            E("        ADD	#10., SP");              // убрать cnt accum rem base cx
-            E("        MOV	(SP)+, R4");
-            E("        MOV	(SP)+, R3");
-            E("        MOV	(SP)+, R2");
-            E("        MOV	(SP)+, R1");
-            E("        MOV	(SP)+, R0");
-            E("        MOV	(SP)+, R5");
-            E("        RTS	PC");
+            // ── Общий эпилог ─────────────────────────────────────
+            E("RGRADEX:");
+            E("        MOV\t(SP)+, R4");
+            E("        MOV\t(SP)+, R3");
+            E("        MOV\t(SP)+, R2");
+            E("        MOV\t(SP)+, R1");
+            E("        MOV\t(SP)+, R0");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
             E("");
 
-            // ── RTGRDV: вертикальный градиент (fill_grad_v) ───────
-            E("; RTGRDV — fill_grad_v(x,y,w,h,fg,bg)");
-            E(";   4.(R5)=x 6.(R5)=y 8.(R5)=w 10.(R5)=h 12.(R5)=fg 14.(R5)=bg");
-            E("; 8 горизонтальных полос высотой ~h/8, pat 0→7 сверху вниз");
-            E("; base=h>>3, rem=h&7, Брезенхэм для остатка");
-            E("; Стек: SP+0=cnt SP+2=accum SP+4=rem SP+6=base SP+8=cy");
-            E("RTGRDV:");
-            E("        MOV	R5, -(SP)");
-            E("        MOV	SP, R5");
-            E("        MOV	R0, -(SP)");
-            E("        MOV	R1, -(SP)");
-            E("        MOV	R2, -(SP)");
-            E("        MOV	R3, -(SP)");
-            E("        MOV	R4, -(SP)");
-            E("        MOV	10.(R5), R2");           // h
-            E("        MOV	R2, R3");
-            E("        ASR	R3"); E("        ASR	R3"); E("        ASR	R3"); // base=h>>3
-            E("        BIC	#177770, R2");           // rem=h&7
-            E("        MOV	6.(R5), -(SP)");         // push cy=y    SP+8
-            E("        MOV	R3, -(SP)");             // push base    SP+6
-            E("        MOV	R2, -(SP)");             // push rem     SP+4
-            E("        CLR	-(SP)");                 // push accum=0 SP+2
-            E("        CLR	R4");                    // R4=pat=0
-            E("        MOV	#8., -(SP)");            // push cnt=8   SP+0
-            E("RGRDVL:");
-            E("        MOV	6.(SP), R3");            // R3=base=ph
-            E("        ADD	4.(SP), 2.(SP)");        // accum+=rem
-            E("        CMP	2.(SP), #8.");
-            E("        BLT	RGRDV1");
-            E("        INC	R3");
-            E("        SUB	#8., 2.(SP)");
-            E("RGRDV1:");
-            // Вызов fill_dither(x, cy, w, ph, pat, fg, bg)
-            E("        MOV	14.(R5), -(SP)");        // bg
-            E("        MOV	12.(R5), -(SP)");        // fg
-            E("        MOV	R4, -(SP)");             // pat
-            E("        MOV	R3, -(SP)");             // ph
-            E("        MOV	8.(R5), -(SP)");         // w
-            E("        MOV	18.(SP), -(SP)");        // cy (SP+8 → +18 after 5 pushes)
-            E("        MOV	4.(R5), -(SP)");         // x
-            E("        JSR	PC, RTDITH");
-            E("        ADD	#14., SP");
-            E("        ADD	R3, 8.(SP)");            // cy += ph
-            E("        INC	R4");                    // pat++
-            E("        DEC	0.(SP)");                // cnt--
-            E("        BNE	RGRDVL");
-            E("        ADD	#10., SP");
-            E("        MOV	(SP)+, R4");
-            E("        MOV	(SP)+, R3");
-            E("        MOV	(SP)+, R2");
-            E("        MOV	(SP)+, R1");
-            E("        MOV	(SP)+, R0");
-            E("        MOV	(SP)+, R5");
-            E("        RTS	PC");
+            // ── Вспомогательный макрос: вызов RTDITH ─────────────
+            // Вызывает RTDITH(cx, cy, pw, ph, pat, fg, bg)
+            // Аргументы: R0=cx R1=cy R2=pw R3=ph R4=pat
+            // fg=12.(R5) bg=14.(R5) — из фрейма родителя
+            E("; RGCALL — вызов RTDITH с R0=x R1=y R2=w R3=h R4=pat");
+            E("; fg=12.(R5) bg=14.(R5)");
+            E("RGCALL:");
+            E("        MOV\t14.(R5), -(SP)");        // bg
+            E("        MOV\t12.(R5), -(SP)");        // fg
+            E("        MOV\tR4, -(SP)");             // pat
+            E("        MOV\tR3, -(SP)");             // h
+            E("        MOV\tR2, -(SP)");             // w
+            E("        MOV\tR1, -(SP)");             // y
+            E("        MOV\tR0, -(SP)");             // x
+            E("        JSR\tPC, RTDITH");
+            E("        ADD\t#14., SP");
+            E("        RTS\tPC");
+            E("");
+
+            // ── RGGRLR: лево→право ────────────────────────────────
+            // 8 вертикальных полос шириной ~w/8
+            // pat=0 слева, pat=7 справа
+            // base=w>>3, rem=w&7, Брезенхэм для остатка
+            E("RGGRLR:");
+            E("        MOV\t8.(R5), R2");            // w
+            E("        MOV\tR2, R3");
+            E("        ASR\tR3"); E("        ASR\tR3"); E("        ASR\tR3"); // R3=base=w>>3
+            E("        BIC\t#177770, R2");           // R2=rem=w&7
+            // Локали на стеке: cx base rem accum
+            E("        MOV\t4.(R5), -(SP)");         // SP+6=cx=x
+            E("        MOV\tR3, -(SP)");             // SP+4=base
+            E("        MOV\tR2, -(SP)");             // SP+2=rem
+            E("        CLR\t-(SP)");                 // SP+0=accum=0
+            E("        CLR\tR4");                    // R4=pat=0
+            E("        MOV\t#10., R1");              // R1=8 (счётчик)
+            E("RGLRL:");
+            // pw = base; accum+=rem; if accum>=8: pw++; accum-=8
+            E("        MOV\t4.(SP), R2");            // R2=base=pw
+            E("        ADD\t2.(SP), 0.(SP)");        // accum+=rem
+            E("        CMP\t0.(SP), #10.");
+            E("        BLT\tRGLR1");
+            E("        INC\tR2");
+            E("        SUB\t#10., 0.(SP)");
+            E("RGLR1:");
+            // вызов: cx=6.(SP) y=6.(R5) w=R2 h=10.(R5) pat=R4
+            E("        MOV\t6.(SP), R0");            // cx
+            E("        MOV\t6.(R5), R1");            // y
+            E("        MOV\t10.(R5), R3");           // h
+            E("        JSR\tPC, RGCALL");
+            // cx += pw
+            E("        ADD\tR2, 6.(SP)");
+            E("        INC\tR4");                    // pat++
+            E("        DEC\tR1");                    // счётчик--  (R1 портится RGCALL? нет — RGCALL сохраняет регистры через RTDITH)
+            E("        BNE\tRGLRL");
+            E("        ADD\t#8., SP");               // убрать cx base rem accum
+            E("        BR\tRGRADEX");
+
+            // ── RGGRRL: право→лево ────────────────────────────────
+            // pat=0 справа, pat=7 слева
+            // cx начинается с x+w, идёт влево
+            E("RGGRRL:");
+            E("        MOV\t8.(R5), R2");
+            E("        MOV\tR2, R3");
+            E("        ASR\tR3"); E("        ASR\tR3"); E("        ASR\tR3");
+            E("        BIC\t#177770, R2");
+            // cx = x+w (начнём с правого края, будем вычитать pw)
+            E("        MOV\t4.(R5), R0");
+            E("        ADD\t8.(R5), R0");            // R0=x+w
+            E("        MOV\tR0, -(SP)");             // SP+6=cx=x+w
+            E("        MOV\tR3, -(SP)");
+            E("        MOV\tR2, -(SP)");
+            E("        CLR\t-(SP)");
+            E("        CLR\tR4");
+            E("        MOV\t#10., R1");
+            E("RGRLL:");
+            E("        MOV\t4.(SP), R2");
+            E("        ADD\t2.(SP), 0.(SP)");
+            E("        CMP\t0.(SP), #10.");
+            E("        BLT\tRGRL1");
+            E("        INC\tR2");
+            E("        SUB\t#10., 0.(SP)");
+            E("RGRL1:");
+            // cx -= pw (рисуем справа налево)
+            E("        SUB\tR2, 6.(SP)");
+            E("        MOV\t6.(SP), R0");            // cx (уже вычтено)
+            E("        MOV\t6.(R5), R1");
+            E("        MOV\t10.(R5), R3");
+            E("        JSR\tPC, RGCALL");
+            E("        INC\tR4");
+            E("        DEC\tR1");
+            E("        BNE\tRGRLL");
+            E("        ADD\t#8., SP");
+            E("        BR\tRGRADEX");
+
+            // ── RGGRTB: верх→низ ──────────────────────────────────
+            // 8 горизонтальных полос высотой ~h/8
+            // pat=0 сверху, pat=7 снизу
+            E("RGGRTB:");
+            E("        MOV\t10.(R5), R2");           // h
+            E("        MOV\tR2, R3");
+            E("        ASR\tR3"); E("        ASR\tR3"); E("        ASR\tR3");
+            E("        BIC\t#177770, R2");
+            E("        MOV\t6.(R5), -(SP)");         // SP+6=cy=y
+            E("        MOV\tR3, -(SP)");
+            E("        MOV\tR2, -(SP)");
+            E("        CLR\t-(SP)");
+            E("        CLR\tR4");
+            E("        MOV\t#10., R1");
+            E("RGTBL:");
+            E("        MOV\t4.(SP), R3");            // R3=base=ph
+            E("        ADD\t2.(SP), 0.(SP)");
+            E("        CMP\t0.(SP), #10.");
+            E("        BLT\tRGTB1");
+            E("        INC\tR3");
+            E("        SUB\t#10., 0.(SP)");
+            E("RGTB1:");
+            E("        MOV\t4.(R5), R0");            // x
+            E("        MOV\t6.(SP), R1");            // cy
+            E("        MOV\t8.(R5), R2");            // w
+            E("        JSR\tPC, RGCALL");
+            E("        ADD\tR3, 6.(SP)");            // cy += ph
+            E("        INC\tR4");
+            E("        DEC\tR1");
+            E("        BNE\tRGTBL");
+            E("        ADD\t#8., SP");
+            E("        BR\tRGRADEX");
+
+            // ── RGGRBT: низ→верх ──────────────────────────────────
+            // pat=0 снизу, pat=7 сверху
+            E("RGGRBT:");
+            E("        MOV\t10.(R5), R2");
+            E("        MOV\tR2, R3");
+            E("        ASR\tR3"); E("        ASR\tR3"); E("        ASR\tR3");
+            E("        BIC\t#177770, R2");
+            // cy = y+h (начинаем снизу)
+            E("        MOV\t6.(R5), R0");
+            E("        ADD\t10.(R5), R0");
+            E("        MOV\tR0, -(SP)");             // SP+6=cy=y+h
+            E("        MOV\tR3, -(SP)");
+            E("        MOV\tR2, -(SP)");
+            E("        CLR\t-(SP)");
+            E("        CLR\tR4");
+            E("        MOV\t#10., R1");
+            E("RGBTL:");
+            E("        MOV\t4.(SP), R3");
+            E("        ADD\t2.(SP), 0.(SP)");
+            E("        CMP\t0.(SP), #10.");
+            E("        BLT\tRGBT1");
+            E("        INC\tR3");
+            E("        SUB\t#10., 0.(SP)");
+            E("RGBT1:");
+            E("        SUB\tR3, 6.(SP)");            // cy -= ph
+            E("        MOV\t4.(R5), R0");
+            E("        MOV\t6.(SP), R1");            // cy
+            E("        MOV\t8.(R5), R2");
+            E("        JSR\tPC, RGCALL");
+            E("        INC\tR4");
+            E("        DEC\tR1");
+            E("        BNE\tRGBTL");
+            E("        ADD\t#8., SP");
+            E("        BR\tRGRADEX");
             E("");
 
             E("; RTCRC — circle(cx,cy,r,color)");
@@ -1481,8 +1575,6 @@ namespace CompMacro11
             // Таблицы на 640 — покрывают оба режима
             E("        .PSECT\tDATA, RW, D");
             E("CTAB:   .WORD\tCM0,CM1,CM2,CM3");
-            E("SCRW:   .WORD\t320.");                // ширина экрана: 320 или 640
-            E("RNDSEED:.WORD\t12345.");
             E("; FCTAB: слово цвета для fill_rect (8 пикселей одного цвета)");
             E("; цвет 0=0x0000  1=0x00FF  2=0xFF00  3=0xFFFF");
             E("FCTAB:  .WORD\t0, 377, 177400, 177777");
@@ -1522,6 +1614,7 @@ namespace CompMacro11
             E("CM1:    .BLKW\t640.");
             E("CM2:    .BLKW\t640.");
             E("CM3:    .BLKW\t640.");
+            E("SPBUF:  .BLKW\t15.");           // буфер строки спрайта (14 слов + хвост)
             E("        .PSECT\tCODE, RO, I");
             E("");
         }
@@ -3488,12 +3581,12 @@ namespace CompMacro11
             // с передачей аргументов через стек, кроме cls/init/pause.
             switch (c.FuncName)
             {
+                case "init":
                 case "cls":
-                    if (c.Args.Count > 1)
-                        throw new Exception($"Строка {c.Line}: cls([mode]) принимает 0 или 1 аргумент");
-                    EC($"cls({ArgStr(c)}): инициализация экрана");
-                    if (c.Args.Count == 1) { GenExpr(c.Args[0]); }
-                    else { EI("CLR", "R0"); }
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: {c.FuncName}(mode) требует 1 аргумент (0..3)");
+                    EC($"{c.FuncName}(mode): настройка экрана");
+                    GenExpr(c.Args[0]);   // R0 = mode
                     EI("JSR", "PC, RTCLS");
                     break;
 
@@ -3502,6 +3595,24 @@ namespace CompMacro11
                         throw new Exception($"Строка {c.Line}: pause() не принимает аргументов");
                     EC("pause(): пауза");
                     EI("JSR", "PC, RTPAUS");
+                    break;
+
+                case "box":
+                    if (c.Args.Count != 5)
+                        throw new Exception($"Строка {c.Line}: box(x,y,w,h,color) требует 5 аргументов");
+                    EC($"box({ArgStr(c)}): прямоугольник");
+                    // Вычислить color первым и сохранить на стек
+                    // (color = первый аргумент в стеке = дальше от вершины)
+                    GenExpr(c.Args[4]);          // R0 = индекс цвета
+                    EI("JSR", "PC, RTCLR");      // R0 = слово цвета
+                    EI("MOV", "R0, -(SP)");      // push color
+                    // Затем h, w, y, x (справа налево из оставшихся)
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // push h
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // push w
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // push y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // push x
+                    EI("JSR", "PC, RTBOX");
+                    EI("ADD", "#10., SP");
                     break;
 
                 case "sprite":
@@ -3534,13 +3645,36 @@ namespace CompMacro11
                     EI("ADD", "#8., SP");
                     break;
 
-                case "random":
+                case "getTimer":
+                    if (c.Args.Count != 0)
+                        throw new Exception($"Строка {c.Line}: getTimer() не принимает аргументов");
+                    EI("JSR", "PC, RTGTIM");   // результат в R0
+                    break;
+
+                case "printnum":
                     if (c.Args.Count != 1)
-                        throw new Exception($"Строка {c.Line}: random(n) требует 1 аргумент");
-                    EC($"random({ArgStr(c)}): случайное число 0..n-1");
-                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // n
-                    EI("JSR", "PC, RTRAND");
+                        throw new Exception($"Строка {c.Line}: printnum(n) требует 1 аргумент");
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTPNUM");
                     EI("ADD", "#2., SP");
+                    break;
+
+                case "print":
+                    // print("text") — вывод строки через RTPRNT
+                    // print(expr)   — вывод числа (не реализовано пока — только строки)
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: print(str) требует 1 аргумент");
+                    if (c.Args[0] is StringLiteralExpr sle)
+                    {
+                        EC($"print(\"{sle.Value}\"): вывод строки");
+                        string lbl = InternString(sle.Value);
+                        EI("MOV", $"#{lbl}, R1");
+                        EI("JSR", "PC, RTPRNT");
+                    }
+                    else
+                    {
+                        throw new Exception($"Строка {c.Line}: print() принимает только строковые литералы");
+                    }
                     break;
 
                 case "point":
@@ -3593,32 +3727,34 @@ namespace CompMacro11
                     EI("ADD", "#10., SP");
                     break;
 
-                case "fill_grad_h":
-                    if (c.Args.Count != 6)
-                        throw new Exception($"Строка {c.Line}: fill_grad_h(x,y,w,h,fg,bg) требует 6 аргументов");
-                    EC($"fill_grad_h({ArgStr(c)}): горизонтальный градиент");
-                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // bg (args[5])
-                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // fg (args[4])
+                case "fill_dither":
+                    if (c.Args.Count != 7)
+                        throw new Exception($"Строка {c.Line}: fill_dither(x,y,w,h,pattern,fg,bg) требует 7 аргументов");
+                    EC($"fill_dither({ArgStr(c)}): паттерновая заливка");
+                    GenExpr(c.Args[6]); EI("MOV", "R0, -(SP)"); // bgcolor
+                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // fgcolor
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // pattern 0..7
                     GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
                     GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
                     GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
-                    EI("JSR", "PC, RTGRDH");
-                    EI("ADD", "#12., SP");
+                    EI("JSR", "PC, RTDITH");
+                    EI("ADD", "#14., SP");
                     break;
 
-                case "fill_grad_v":
-                    if (c.Args.Count != 6)
-                        throw new Exception($"Строка {c.Line}: fill_grad_v(x,y,w,h,fg,bg) требует 6 аргументов");
-                    EC($"fill_grad_v({ArgStr(c)}): вертикальный градиент");
-                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // bg (args[5])
-                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // fg (args[4])
+                case "fill_gradient":
+                    if (c.Args.Count != 7)
+                        throw new Exception($"Строка {c.Line}: fill_gradient(x,y,w,h,fg,bg,dir) требует 7 аргументов");
+                    EC($"fill_gradient({ArgStr(c)}): градиент");
+                    GenExpr(c.Args[6]); EI("MOV", "R0, -(SP)"); // dir 0..3
+                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // bgcolor
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // fgcolor
                     GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
                     GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
                     GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
-                    EI("JSR", "PC, RTGRDV");
-                    EI("ADD", "#12., SP");
+                    EI("JSR", "PC, RTGRAD");
+                    EI("ADD", "#14., SP");
                     break;
 
                 case "waitkey":
