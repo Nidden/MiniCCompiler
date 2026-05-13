@@ -105,8 +105,8 @@ namespace CompMacro11
     public class SpriteEditor : Form
     {
         static readonly Color[][] PAL = {
-            new[]{ Color.Black, Color.Red,     Color.Green,  Color.Yellow },  // палитра 1
-            new[]{ Color.Blue,  Color.Magenta, Color.Cyan,   Color.White  },  // палитра 2
+            new[]{ Color.Black, Color.Green,   Color.Red,    Color.Yellow },  // палитра 1 (0=чёрный,1=зелёный,2=красный,3=жёлтый)
+            new[]{ Color.Blue,  Color.Cyan,    Color.Magenta,Color.White  },  // палитра 2 (0=синий,1=голубой,2=пурпурный,3=белый)
             new[]{ Color.Black, Color.FromArgb(85,85,85), Color.FromArgb(170,170,170), Color.White } // Ч/Б
         };
         static readonly string[] PAL_NAMES = { "Набор 1", "Набор 2", "Ч/Б" };
@@ -818,7 +818,7 @@ namespace CompMacro11
             foreach (var s in _sprites)
             {
                 sb.AppendLine($"// sprite: {s.Name}  {s.PixelWidth}x{s.Height}");
-                sb.AppendLine($"// sprite(x, y, {s.Words}, {s.Height}, {s.Name});");
+                sb.AppendLine($"// sprite(x, y, {s.PixelWidth}, {s.Height}, {s.Name});");
             }
             var code = sb.ToString();
             if (_insertCode != null) _insertCode(code);

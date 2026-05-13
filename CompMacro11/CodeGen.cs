@@ -5,7 +5,7 @@ using System.Text;
 namespace CompMacro11
 {
     /// <summary>
-    /// Кодогенератор Mini-C → Macro-11 ( PDP-11 )
+    /// Кодогенератор Mini-C → Macro-11 (PDP-11)
     ///
     /// Соглашение о вызовах (caller-cleans-up):
     ///   Аргументы: справа налево, MOV arg, -(SP)
@@ -103,9 +103,28 @@ namespace CompMacro11
         // Macro-11: метка ≤ 6 символов [A-Z0-9]
         private string ToAsm(string name, int maxLen = 6)
         {
+            // Разбиваем имя по '_': sprite_5 → ["sprite","5"]
+            // Берём буквы основы (до maxLen-1) и добавляем суффикс-цифру
+            var parts = name.ToUpper().Split('_');
             var sb = new StringBuilder();
-            foreach (char c in name.ToUpper())
-                if (char.IsLetterOrDigit(c)) { sb.Append(c); if (sb.Length == maxLen) break; }
+            // Сначала добавляем буквенную часть первого сегмента
+            foreach (char c in parts[0])
+                if (char.IsLetterOrDigit(c)) { sb.Append(c); }
+            // Если есть цифровой суффикс — резервируем место и добавляем его последним
+            string digitSuffix = "";
+            for (int p = 1; p < parts.Length; p++)
+                if (parts[p].Length > 0 && char.IsDigit(parts[p][0]))
+                    digitSuffix = parts[p].Substring(0, Math.Min(parts[p].Length, 1));
+            if (digitSuffix.Length > 0)
+            {
+                // Обрезаем основу до maxLen-1, добавляем цифру
+                if (sb.Length > maxLen - 1) sb.Remove(maxLen - 1, sb.Length - (maxLen - 1));
+                sb.Append(digitSuffix);
+            }
+            else
+            {
+                if (sb.Length > maxLen) sb.Remove(maxLen, sb.Length - maxLen);
+            }
             if (sb.Length == 0) sb.Append('F');
             return sb.ToString();
         }
@@ -153,35 +172,23 @@ namespace CompMacro11
                 "RTSTTBL","RTTBL1","RTPAUS","RTPS0","RTPRNT","RTPRN1","RTPRN2",
                 "RTCLS","RTCSTB","RTCSC0","RTCSC1","RTCSC2","RTCSC3",
                 "RTBOX","RTBX1","RTBX2",
-                "RTSPR","RTSP1","RTSP2","RTSPS","RTSPS1","RTSPE1","RTSPL1","RTSPL3","RTSPC1","RTSPO1","RTSPX","SPBUF","RTSPB","RTSB1","RTSB2",
-                "RTPNUM","RPNP","RPNM","RPNLP","RPNSB","RPNPT","RPNPR","RPNWT","RPNSK","RPNDN","RPNZ","RPNX","RPNTB","RPNPV",
-                "RTGTIM",
-                "RTWKEY","RTGKEY","RTGK1",
-                "RTCLRT","RTCLR",
-                "RTMCLR","RTMC1","RTMCPY","RTCP1",
-                "RTPTBL","RPTL1","RPTL2","RPTL3","RTPPNT","RPPNR",
-                "RTLINE","RTLCK1","RTLCK2","RTLCK3","RTLCK4","RTLNA","RTLNB","RTLNC","RTLND","RTLNE","RTLNF","RTLNG","RTLNL","RTLNX",
-                "RTRECT",
-                "RTFRCT","RFCK1","RFCK2","RFCK3","RFCK4",
-                "RFCTY","RFCTW","RFCTL0","RFCTL","RFCTR0","RFCTRP","RFCTN",
-                "RFCTSM","RFCSMY","RFCSMX","RFCTOK","RFCTEX",
-                "FCTAB",
-                "RTDITH","RDCK1","RDCK2","RDCK3","RDCK4","RDCKH","RDITHY","RDITHX","RDITHEX",
-                "RTGRAD","RGRADEX","RGCALL",
-                "RGGRLR","RGLRL","RGLR1",
-                "RGGRRL","RGRLL","RGRL1",
-                "RGGRTB","RGTBL","RGTB1",
-                "RGGRBT","RGBTL","RGBT1",
-                "DTAB",
-                "RTCRC","RCRC1","RCRC1A","RCRC2","RCRC3","RCRC9",
-                "XWRD","CM0","CM1","CM2","CM3","CTAB",
-                "DSPST","KBDRT","KBDLT","KBDUP","KBDDN" })
-                _usedLabels.Add(lbl);
+                "RTSPR","RTSP1","RTSP2","RTSPS","RTSPS1","RTSPE1","RTSPL1","RTSPL3","RTSPC1","RTSPO1","RTSPX","SPBUF","FLPBUF","REVTAB","RTSPRF","RTSFV0","RTSFV1","RTSFVL","RTSFVE","RTSFPL1","RTSFPL3","RTSFPC1","RTSFPCH","RTSFPCH1","RTSFPRD","RTSFPS1","RTSFPE1","RTSFPO1" });
 
-            // Зарегистрировать глобальные массивы
+            // Зарегистрировать глобальные массивы (с уникальными метками)
+            var globalLabelSet = new System.Collections.Generic.HashSet<string>();
             foreach (var g in prog.Globals)
             {
                 string glbl = ToAsm(g.Name);
+                // Обеспечиваем уникальность
+                if (globalLabelSet.Contains(glbl))
+                {
+                    int suffix = 2;
+                    string candidate;
+                    do { candidate = ToAsm(g.Name, 5) + suffix++; }
+                    while (globalLabelSet.Contains(candidate));
+                    glbl = candidate;
+                }
+                globalLabelSet.Add(glbl);
                 _usedLabels.Add(glbl);
                 _globals[g.Name] = new SymInfo
                 {
@@ -590,12 +597,189 @@ namespace CompMacro11
             E("        MOV	(SP)+, R0");
             E("        MOV	(SP)+, R5");
             E("        RTS	PC");
+            E("; RTSPRF — sprite(x,y,w,h,ptr,fliph,flipv)");
+            E(";   fliph=1: горизонтальный flip (реверс бит строки через REVTAB)");
+            E(";   flipv=1: вертикальный flip (строки в обратном порядке)");
+            E(";   4.(R5)=x 6.(R5)=y 8.(R5)=w 10.(R5)=h 12.(R5)=ptr 14.(R5)=fliph 16.(R5)=flipv");
+            E(";");
+            E("; Вертикальный flip: ptr начинает с последней строки,");
+            E(";   шаг = -words*2 (вместо +words*2)");
+            E("; Горизонтальный flip: слова копируются в SPBUF в обратном порядке");
+            E(";   и каждый байт реверсируется через REVTAB");
+            E(";");
+            E("; Стек внутри: SP+0=h SP+2=step_vram SP+4=s SP+6=step_ptr");
+            E("; RTSPRF — sprite(x,y,w,h,ptr,fliph,flipv)");
+            E("; Стек рабочий: SP+0=step_ptr SP+2=fliph SP+4=h");
+            E("; RTSPRF — sprite(x,y,w,h,ptr,fliph,flipv)");
+            E("; flipv=1: строки в обратном порядке");
+            E("; RTSPRF — sprite(x,y,w,h,ptr,fliph,flipv)");
+            E("; Стек рабочий: SP+0=step_ptr SP+2=h SP+4=fliph");
+            E("; RTSPRF — sprite(x,y,w,h,ptr,fliph,flipv)");
+            E("; RTSPRF — sprite(x,y,w,h,ptr,fliph,flipv)");
+            E("; RTSPRF — sprite(x,y,w,h,ptr,fliph,flipv)");
+            E("; Быстрый путь: x кратно 8, fliph=0, flipv=0 — прямое копирование");
+            E("; Медленный путь: всё остальное");
+            E(";   Внутренняя строка SPBUF формируется из пикселей спрайта:");
+            E(";   fliph=0: слева направо, fliph=1: справа налево + реверс байт");
+            E(";   flipv=0: ptr идёт вниз, flipv=1: ptr начинает снизу, идёт вверх");
+            E(";   Сдвиг через ROLB если x не кратно 8");
+            E(";");
+            E("; RTSPRF — sprite(x,y,w,h,ptr,fliph,flipv)");
+            E("; Основа — медленный путь RTSPR, добавлены fliph и flipv");
+            E("; RTSPRF — sprite(x,y,w,h,ptr,fliph,flipv)");
+            E("; Основа: медленный путь RTSPR. Изменения минимальны.");
+            E("; flipv: ptr начинает с последней строки, шаг -words*2");
+            E("; fliph: копирование строки в обратном порядке + реверс байт");
+            E("; Стек цикла: SP+0=h SP+2=step_vram SP+4=s");
+            E("; R4=ptr текущей строки, перед циклом корректируется на step");
+            E("RTSPRF:");
+            E("        MOV	R5, -(SP)");
+            E("        MOV	SP, R5");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	R3, -(SP)");
+            E("        MOV	R4, -(SP)");
+            E("        MOV	4.(R5),  R0");   // x
+            E("        MOV	8.(R5),  R2");   // w→words
+            E("        ASR	R2"); E("        ASR	R2"); E("        ASR	R2");
+            E("        MOV	10.(R5), R3");   // h
+            E("        MOV	12.(R5), R4");   // ptr
+            // Сохраняем fliph ДО изменения R5
+            E("        MOV	14.(R5), -(SP)"); // push fliph  [SP+0=fliph]
+            // flipv: ptr → последняя строка
+            E("        TST	16.(R5)");
+            E("        BEQ	RTSFV0");
+            E("        MOV	R3, R1"); E("        DEC	R1");
+            E("RTSFVL: BEQ	RTSFVE");
+            E("        ADD	R2, R4"); E("        ADD	R2, R4");
+            E("        DEC	R1"); E("        BR	RTSFVL");
+            // step = -words*2
+            E("RTSFVE: MOV	R2, R1"); E("        ASL	R1"); E("        NEG	R1");
+            E("        BR	RTSFV1");
+            // step = +words*2
+            E("RTSFV0: MOV	R2, R1"); E("        ASL	R1");
+            E("RTSFV1: MOV	R1, -(SP)");     // push step_ptr  [SP+0=step_ptr SP+2=fliph]
+            // Теперь вычисляем VRAM адрес и s — как в RTSPR
+            E("        MOV	6.(R5), R1");    // y
+            E("        ASL	R1");
+            E("        MOV	DSPST(R1), R5"); // R5 = начало строки VRAM (R5 изменён!)
+            E("        MOV	R0, R1");
+            E("        BIC	#177770, R1");   // R1 = s = x&7
+            E("        ASR	R0"); E("        ASR	R0"); E("        ASR	R0");
+            E("        ADD	R0, R5");        // R5 += x/8
+            // Дальше точно как RTSPR медленный путь:
+            E("        MOV	#80., R0");
+            E("        SUB	R2, R0");
+            E("        DEC	R0");            // step_vram = 80-words-1
+            E("        MOV	R1, -(SP)");     // push s
+            E("        MOV	R0, -(SP)");     // push step_vram
+            E("        MOV	R3, -(SP)");     // push h
+            // SP+0=h SP+2=step_vram SP+4=s SP+6=step_ptr SP+8=fliph
+            E("RTSFPL1:");
+            // Копируем строку спрайта в SPBUF
+            E("        MOV	R2, R1");
+            E("        MOV	#SPBUF, R0");
+            E("        TST	8.(SP)");        // fliph?
+            E("        BNE	RTSFPCH");
+            // fliph=0: прямо как RTSPR
+            E("RTSFPC1: MOV	(R4)+, (R0)+");
+            E("        DEC	R1");
+            E("        BNE	RTSFPC1");
+            E("        CLR	(R0)");
+            E("        BR	RTSFPRD");       // → сдвиг
+            // fliph=1: обратный порядок + реверс байт
+            // R4 не двигаем — читаем с конца строки
+            E("RTSFPCH: MOV	R4, R3");      // R3 = ptr начала строки
+            E("        ADD	R2, R3"); E("        ADD	R2, R3");
+            E("        SUB	#2., R3");      // R3 → последнее слово
+            E("RTSFPCH1:");
+            E("        MOV	(R3), -(SP)");  // push слово
+            E("        SUB	#2., R3");      // R3 → предыдущее слово
+            E("        SWAB	(SP)");        // план1 → младший байт на стеке
+            E("        MOV	(SP), R3");     // R3 = план1
+            E("        BIC	#177400, R3");
+            E("        MOVB	REVTAB(R3), (R0)");
+            E("        INC	R0");
+            E("        MOV	(SP)+, R3");    // pop → R3 = слово (swabbed)
+            E("        BIC	#177400, R3");  // план2 (теперь в старшем — нет, после SWAB в младшем...)
+            // Стоп: после SWAB план1 в младшем, план2 в старшем
+            // MOV (SP),R3 → R3=слово после SWAB: младший=план1, старший=план2
+            // BIC #177400,R3 → R3=план1 ✓
+            // MOVB REVTAB(R3),(R0) → реверс план1 в SPBUF ✓
+            // MOV (SP)+,R3 → R3=слово после SWAB
+            // BIC #177400,R3 → R3=план1 снова! Нужен план2.
+            // Нужно SWAB R3 ещё раз чтобы получить план2
+            E("        SWAB	R3");          // план2 → младший байт
+            E("        BIC	#177400, R3");
+            E("        MOVB	REVTAB(R3), (R0)");
+            E("        INC	R0");
+            E("        DEC	R1");
+            E("        BNE	RTSFPCH1");
+            E("        CLR	(R0)");
+            // После fliph R4 не двигался — двигаем на words*2 вперёд
+            E("        ADD	R2, R4"); E("        ADD	R2, R4");
+            // Восстанавливаем R3 (испорчен в fliph)
+            E("        MOV	0.(SP), R3");   // R3 = h
+            E("RTSFPRD:");
+            // Сдвиг — точно как RTSPR
+            E("        MOV	4.(SP), R1");   // s
+            E("        BNE	RTSFPS1");      // s!=0 → сдвиг
+            E("        JMP	RTSFPE1");      // s=0 → вывод
+            E("RTSFPS1: CLC");
+            E("        ROLB	SPBUF+1."); E("        ROLB	SPBUF+3.");
+            E("        ROLB	SPBUF+5."); E("        ROLB	SPBUF+7.");
+            E("        ROLB	SPBUF+9."); E("        ROLB	SPBUF+11.");
+            E("        ROLB	SPBUF+13."); E("        ROLB	SPBUF+15.");
+            E("        ROLB	SPBUF+17."); E("        ROLB	SPBUF+19.");
+            E("        ROLB	SPBUF+21."); E("        ROLB	SPBUF+23.");
+            E("        ROLB	SPBUF+25."); E("        ROLB	SPBUF+27.");
+            E("        ROLB	SPBUF+29.");
+            E("        CLC");
+            E("        ROLB	SPBUF+0."); E("        ROLB	SPBUF+2.");
+            E("        ROLB	SPBUF+4."); E("        ROLB	SPBUF+6.");
+            E("        ROLB	SPBUF+8."); E("        ROLB	SPBUF+10.");
+            E("        ROLB	SPBUF+12."); E("        ROLB	SPBUF+14.");
+            E("        ROLB	SPBUF+16."); E("        ROLB	SPBUF+18.");
+            E("        ROLB	SPBUF+20."); E("        ROLB	SPBUF+22.");
+            E("        ROLB	SPBUF+24."); E("        ROLB	SPBUF+26.");
+            E("        ROLB	SPBUF+28.");
+            E("        DEC	R1");
+            E("        BNE	RTSFPS1");      // ещё раз
+            E("        JMP	RTSFPE1");      // s кончился → вывод
+            // Вывод — точно как RTSPR
+            E("RTSFPE1: MOV	R2, R1");
+            E("        INC	R1");
+            E("        MOV	#SPBUF, R0");
+            E("RTSFPO1: MOV	R5, @#176640");
+            E("        MOV	(R0)+, @#176642");
+            E("        INC	R5");
+            E("        DEC	R1");
+            E("        BNE	RTSFPO1");
+            // Следующая строка — отличие от RTSPR:
+            // вместо просто двигаться вперёд, используем step_ptr
+            E("        ADD	2.(SP), R5");   // step_vram — как RTSPR
+            // R4 сейчас = ptr_текущей + words*2 (после копирования)
+            // Нужно R4 = ptr_текущей + step_ptr
+            // step_ptr = 6.(SP)
+            // ptr_текущей = R4 - words*2
+            E("        ADD	#0., R4");       // DEBUG: нет сдвига (только вперёд)
+            E("        DEC	0.(SP)");       // h-- — как RTSPR
+            E("        BEQ	RTSFPL3");
+            E("        JMP	RTSFPL1");
+            E("RTSFPL3: TST	(SP)+");       // pop h
+            E("        TST	(SP)+");        // pop step_vram
+            E("        TST	(SP)+");        // pop s
+            E("        TST	(SP)+");        // pop step_ptr
+            E("        TST	(SP)+");        // pop fliph
+            E("        MOV	(SP)+, R4");
+            E("        MOV	(SP)+, R3");
+            E("        MOV	(SP)+, R2");
+            E("        MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        MOV	(SP)+, R5");
+            E("        RTS	PC");
             E("");
-            E("; RTSPB — spriteOr(x,y,w,h,ptr): BIS спрайта с VRAM");
-            E("; 0-биты в спрайте = прозрачность, 1-биты = установить.");
-            E("; Внутренний цикл: addr→read VRAM→BIS sprite→write");
-            E("; R5=адрес строки, R0=шаг, R1=счётчик, R2=w, R3=h, R4=ptr");
-            E("; Используем R2 как temp в цикле (w сохранён в стеке)");
             E("RTSPB:");
             E("        MOV\tR5, -(SP)");
             E("        MOV\tSP, R5");
@@ -1615,6 +1799,41 @@ namespace CompMacro11
             E("CM2:    .BLKW\t640.");
             E("CM3:    .BLKW\t640.");
             E("SPBUF:  .BLKW\t15.");           // буфер строки спрайта (14 слов + хвост)
+            E("FLPBUF: .BLKW\t15.");
+            E("REVTAB:");
+            E("        .BYTE\t0., 128., 64., 192., 32., 160., 96., 224.");
+            E("        .BYTE\t16., 144., 80., 208., 48., 176., 112., 240.");
+            E("        .BYTE\t8., 136., 72., 200., 40., 168., 104., 232.");
+            E("        .BYTE\t24., 152., 88., 216., 56., 184., 120., 248.");
+            E("        .BYTE\t4., 132., 68., 196., 36., 164., 100., 228.");
+            E("        .BYTE\t20., 148., 84., 212., 52., 180., 116., 244.");
+            E("        .BYTE\t12., 140., 76., 204., 44., 172., 108., 236.");
+            E("        .BYTE\t28., 156., 92., 220., 60., 188., 124., 252.");
+            E("        .BYTE\t2., 130., 66., 194., 34., 162., 98., 226.");
+            E("        .BYTE\t18., 146., 82., 210., 50., 178., 114., 242.");
+            E("        .BYTE\t10., 138., 74., 202., 42., 170., 106., 234.");
+            E("        .BYTE\t26., 154., 90., 218., 58., 186., 122., 250.");
+            E("        .BYTE\t6., 134., 70., 198., 38., 166., 102., 230.");
+            E("        .BYTE\t22., 150., 86., 214., 54., 182., 118., 246.");
+            E("        .BYTE\t14., 142., 78., 206., 46., 174., 110., 238.");
+            E("        .BYTE\t30., 158., 94., 222., 62., 190., 126., 254.");
+            E("        .BYTE\t1., 129., 65., 193., 33., 161., 97., 225.");
+            E("        .BYTE\t17., 145., 81., 209., 49., 177., 113., 241.");
+            E("        .BYTE\t9., 137., 73., 201., 41., 169., 105., 233.");
+            E("        .BYTE\t25., 153., 89., 217., 57., 185., 121., 249.");
+            E("        .BYTE\t5., 133., 69., 197., 37., 165., 101., 229.");
+            E("        .BYTE\t21., 149., 85., 213., 53., 181., 117., 245.");
+            E("        .BYTE\t13., 141., 77., 205., 45., 173., 109., 237.");
+            E("        .BYTE\t29., 157., 93., 221., 61., 189., 125., 253.");
+            E("        .BYTE\t3., 131., 67., 195., 35., 163., 99., 227.");
+            E("        .BYTE\t19., 147., 83., 211., 51., 179., 115., 243.");
+            E("        .BYTE\t11., 139., 75., 203., 43., 171., 107., 235.");
+            E("        .BYTE\t27., 155., 91., 219., 59., 187., 123., 251.");
+            E("        .BYTE\t7., 135., 71., 199., 39., 167., 103., 231.");
+            E("        .BYTE\t23., 151., 87., 215., 55., 183., 119., 247.");
+            E("        .BYTE\t15., 143., 79., 207., 47., 175., 111., 239.");
+            E("        .BYTE\t31., 159., 95., 223., 63., 191., 127., 255.");
+            E("        .EVEN");
             E("        .PSECT\tCODE, RO, I");
             E("");
         }
@@ -2588,6 +2807,8 @@ namespace CompMacro11
             // Базовый адрес → R1
             if (sym.IsParam && sym.Type.IsArray)
                 EI("MOV", $"{FP(sym.Offset)}, R1");
+            else if (sym.StaticLabel != null)
+                EI("MOV", $"#{sym.StaticLabel}, R1");  // глобальный/статический массив
             else
             {
                 EI("MOV", "R5, R1");
@@ -3616,12 +3837,22 @@ namespace CompMacro11
                     break;
 
                 case "sprite":
-                    if (c.Args.Count != 5)
-                        throw new Exception($"Строка {c.Line}: sprite(x,y,w,h,ptr) требует 5 аргументов");
-                    EC($"sprite({ArgStr(c)}): спрайт");
-                    for (int i = 4; i >= 0; i--) { GenExpr(c.Args[i]); EI("MOV", "R0, -(SP)"); }
-                    EI("JSR", "PC, RTSPR");
-                    EI("ADD", "#10., SP");
+                    if (c.Args.Count == 5)
+                    {
+                        EC($"sprite({ArgStr(c)}): спрайт");
+                        for (int i = 4; i >= 0; i--) { GenExpr(c.Args[i]); EI("MOV", "R0, -(SP)"); }
+                        EI("JSR", "PC, RTSPR");
+                        EI("ADD", "#10., SP");
+                    }
+                    else if (c.Args.Count == 7)
+                    {
+                        EC($"sprite({ArgStr(c)}): спрайт с flip");
+                        for (int i = 6; i >= 0; i--) { GenExpr(c.Args[i]); EI("MOV", "R0, -(SP)"); }
+                        EI("JSR", "PC, RTSPRF");
+                        EI("ADD", "#14., SP");
+                    }
+                    else
+                        throw new Exception($"Строка {c.Line}: sprite требует 5 или 7 аргументов");
                     break;
 
                 case "spriteOr":
