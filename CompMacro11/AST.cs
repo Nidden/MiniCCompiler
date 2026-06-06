@@ -155,6 +155,7 @@ namespace CompMacro11
     {
         public List<object> Elements; // int или ArrayInitNode (вложенные)
         public List<int> Flat = new List<int>();
+        public List<string> FlatLabels = new List<string>(); // null = число, иначе имя глобала
     }
 
     // ── Одна ветка switch ────────────────────────────────────

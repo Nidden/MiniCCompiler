@@ -86,7 +86,7 @@ namespace CompMacro11
         //   random(n)          → RTRAND
         private static readonly HashSet<string> _builtins = new HashSet<string>
         {
-            "cls", "init", "pause",
+            "cls", "init", "pause", "print_char", "print_nl", "print_int",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
             "point", "line", "rect", "fill_rect", "fill_dither", "fill_gradient", "circle", "print", "printnum", "getTimer"
@@ -240,7 +240,8 @@ namespace CompMacro11
                         // Массив
                         var flat = g.ArrayInit?.Flat;
                         int total = g.Type.TotalElements();
-                        bool hasData = flat != null && flat.Exists(x => x != 0);
+                        var flatLbls2 = g.ArrayInit?.FlatLabels;
+                        bool hasData = (flat != null && flat.Exists(x => x != 0)) || (flatLbls2 != null && flatLbls2.Exists(l => l != null));
                         if (!hasData)
                         {
                             E($"{glbl}:   .BLKW\t{total}.");
@@ -248,18 +249,32 @@ namespace CompMacro11
                         else
                         {
                             E($"{glbl}:");
+                            var flatLbls = g.ArrayInit?.FlatLabels;
+                            var flatHasLbls = flatLbls != null && flatLbls.Exists(l => l != null);
                             var sb2 = new System.Text.StringBuilder();
                             for (int i = 0; i < total; i++)
                             {
+                                string lbl = (flatLbls != null && i < flatLbls.Count) ? flatLbls[i] : null;
                                 int val = (i < flat.Count) ? flat[i] : 0;
-                                if (sb2.Length > 0) sb2.Append(",");
-                                sb2.Append(val > 32767 || val < 0
-                                    ? Convert.ToString((ushort)val, 8)
-                                    : $"{val}.");
-                                if ((i + 1) % 8 == 0 || i == total - 1)
+                                if (lbl != null)
                                 {
-                                    E($"        .WORD\t{sb2}");
-                                    sb2.Clear();
+                                    if (sb2.Length > 0) { E($"        .WORD\t{sb2}"); sb2.Clear(); }
+                                    string asmLbl = ToAsm(lbl);
+                                    if (_globals.TryGetValue(lbl, out var sym) && sym.StaticLabel != null)
+                                        asmLbl = sym.StaticLabel;
+                                    E($"        .WORD\t{asmLbl}");
+                                }
+                                else
+                                {
+                                    if (sb2.Length > 0) sb2.Append(",");
+                                    sb2.Append(val > 32767 || val < 0
+                                        ? Convert.ToString((ushort)val, 8)
+                                        : $"{val}.");
+                                    if ((i + 1) % 8 == 0 || i == total - 1)
+                                    {
+                                        E($"        .WORD\t{sb2}");
+                                        sb2.Clear();
+                                    }
                                 }
                             }
                         }
@@ -3816,6 +3831,30 @@ namespace CompMacro11
                         throw new Exception($"Строка {c.Line}: pause() не принимает аргументов");
                     EC("pause(): пауза");
                     EI("JSR", "PC, RTPAUS");
+                    break;
+
+                case "print_char":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: print_char(c) требует 1 аргумент");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTPCHR");
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "print_nl":
+                    if (c.Args.Count != 0)
+                        throw new Exception($"Строка {c.Line}: print_nl() не принимает аргументов");
+                    EI("JSR", "PC, RTPNL");
+                    break;
+
+                case "print_int":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: print_int(n) требует 1 аргумент");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTPNUM");
+                    EI("ADD", "#2., SP");
                     break;
 
                 case "box":

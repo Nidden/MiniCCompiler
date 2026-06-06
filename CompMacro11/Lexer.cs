@@ -91,9 +91,21 @@ namespace CompMacro11
                 else if (char.IsDigit(c))
                 {
                     var sb = new StringBuilder();
-                    while (_pos < _src.Length && char.IsDigit(Peek()))
-                        sb.Append(Advance());
-                    tokens.Add(new Token(TokenType.IntLiteral, sb.ToString(), line));
+                    sb.Append(Advance()); // первая цифра
+                    if (sb[0] == '0' && _pos < _src.Length && (Peek() == 'x' || Peek() == 'X'))
+                    {
+                        sb.Append(Advance()); // 'x'
+                        while (_pos < _src.Length && (char.IsDigit(Peek()) || (Peek() >= 'a' && Peek() <= 'f') || (Peek() >= 'A' && Peek() <= 'F')))
+                            sb.Append(Advance());
+                        int val = Convert.ToInt32(sb.ToString(), 16);
+                        tokens.Add(new Token(TokenType.IntLiteral, val.ToString(), line));
+                    }
+                    else
+                    {
+                        while (_pos < _src.Length && char.IsDigit(Peek()))
+                            sb.Append(Advance());
+                        tokens.Add(new Token(TokenType.IntLiteral, sb.ToString(), line));
+                    }
                 }
                 else
                 {
