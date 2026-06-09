@@ -105,8 +105,8 @@ namespace CompMacro11
     public class SpriteEditor : Form
     {
         static readonly Color[][] PAL = {
-            new[]{ Color.Black, Color.Green,   Color.Red,    Color.Yellow },  // палитра 1 (0=чёрный,1=зелёный,2=красный,3=жёлтый)
-            new[]{ Color.Blue,  Color.Cyan,    Color.Magenta,Color.White  },  // палитра 2 (0=синий,1=голубой,2=пурпурный,3=белый)
+            new[]{ Color.Black, Color.Red,     Color.Green,  Color.Yellow },  // палитра 1 (0=чёрный,1=красный,2=зелёный,3=жёлтый)
+            new[]{ Color.Blue,  Color.Magenta, Color.Cyan,   Color.White  },  // палитра 2 (0=синий,1=пурпурный,2=голубой,3=белый)
             new[]{ Color.Black, Color.FromArgb(85,85,85), Color.FromArgb(170,170,170), Color.White } // Ч/Б
         };
         static readonly string[] PAL_NAMES = { "Набор 1", "Набор 2", "Ч/Б" };
@@ -140,7 +140,27 @@ namespace CompMacro11
         Panel[] _swatches = new Panel[4];
 
         // Автосохранение
-        public static readonly string AutoSavePath = System.IO.Path.Combine(
+        // Путь к файлу спрайтов — задаётся при открытии редактора
+        private string _spritesPath = null;
+        public string SpritesPath
+        {
+            get { return _spritesPath ?? System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(
+                    System.Reflection.Assembly.GetExecutingAssembly().Location),
+                "sprites_autosave.spr"); }
+            set
+            {
+                _spritesPath = value;
+                // Перезагружаем спрайты из нового проекта
+                _sprites.Clear();
+                AutoLoad();
+                _cur = 0;
+                if (_sprites.Count == 0) NewSprite();
+                FullRefresh();
+            }
+        }
+        // Для совместимости
+        public static string AutoSavePath => System.IO.Path.Combine(
             System.IO.Path.GetDirectoryName(
                 System.Reflection.Assembly.GetExecutingAssembly().Location),
             "sprites_autosave.spr");
@@ -613,6 +633,15 @@ namespace CompMacro11
 
         void SaveFile()
         {
+            if (_spritesPath != null)
+            {
+                // Сохраняем в проект
+                var sb = new StringBuilder();
+                foreach (var s in _sprites) { sb.Append(s.Serialize()); sb.AppendLine("---"); }
+                File.WriteAllText(_spritesPath, sb.ToString(), System.Text.Encoding.UTF8);
+                return;
+            }
+            // Нет проекта — диалог
             using (var dlg = new SaveFileDialog { Filter = "Спрайты (*.spr)|*.spr", FileName = "sprites" })
             {
                 if (dlg.ShowDialog() != DialogResult.OK) return;
@@ -845,7 +874,7 @@ namespace CompMacro11
             {
                 var sb = new StringBuilder();
                 foreach (var s in _sprites) { sb.Append(s.Serialize()); sb.AppendLine("---"); }
-                File.WriteAllText(AutoSavePath, sb.ToString(), System.Text.Encoding.UTF8);
+                File.WriteAllText(SpritesPath, sb.ToString(), System.Text.Encoding.UTF8);
             }
             catch { /* тихо игнорировать */ }
         }
@@ -854,9 +883,9 @@ namespace CompMacro11
         {
             try
             {
-                if (File.Exists(AutoSavePath))
+                if (File.Exists(SpritesPath))
                 {
-                    var text = File.ReadAllText(AutoSavePath, System.Text.Encoding.UTF8);
+                    var text = File.ReadAllText(SpritesPath, System.Text.Encoding.UTF8);
                     // Поддержка \r\n (Windows) и \n (Unix)
                     text = text.Replace("\r\n", "\n");
                     var blocks = text.Split(new[] { "---\n" }, StringSplitOptions.RemoveEmptyEntries);

@@ -224,6 +224,12 @@ namespace CompMacro11
             set { WriteKey("LastProjectPath", value); }
         }
 
+        public static string LastCode
+        {
+            get { return ReadKey("LastCode").Replace("|NL|", "\n"); }
+            set { WriteKey("LastCode", (value ?? "").Replace("\r\n", "|NL|").Replace("\n", "|NL|")); }
+        }
+
         private static string ReadKey(string key)
         {
             try

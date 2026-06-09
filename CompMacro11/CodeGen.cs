@@ -86,10 +86,10 @@ namespace CompMacro11
         //   random(n)          → RTRAND
         private static readonly HashSet<string> _builtins = new HashSet<string>
         {
-            "cls", "init", "pause", "print_char", "print_nl", "print_int",
+            "cls", "init", "pause", "print_char", "print_nl", "print_int", "print_str", "printf",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "rect", "fill_rect", "fill_dither", "fill_gradient", "circle", "print", "printnum", "getTimer"
+            "point", "line", "rect", "fill_rect", "fill_dither", "fill_gradient", "circle", "print", "printnum", "getTimer", "random"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -886,6 +886,36 @@ namespace CompMacro11
             E("RPNTB:  .WORD\t10000.,1000.,100.,10.,1.,0");
             E("");
 
+            // ── RTRAND: random(n) -> 0..n-1 (LFSR 16-бит) ───────
+            E("; RTRAND — random(n): псевдослучайное 0..n-1.");
+            E("; Вход: 2.(SP)=n. Выход: R0. LFSR x16+x14+x13+x11.");
+            E("RTRAND:");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	RNDSEED, R0");
+            E("        MOV	R0, R1");
+            E("        ASR	R1");
+            E("        XOR	R0, R1");      
+            E("        ASR	R1");
+            E("        ASR	R1");
+            E("        XOR	R0, R1");
+            E("        ASR	R1");
+            E("        XOR	R0, R1");
+            E("        BIC	#177776, R1");  // младший бит
+            E("        ASL	R0");
+            E("        BIS	R1, R0");
+            E("        MOV	R0, RNDSEED");
+            E("        BIC	#100000, R0");  // снять знак
+            E("        MOV	6.(SP), R2");   // n");
+            E("        BEQ	RTRNDX");       // n=0 -> 0");
+            E("RTRNDM: CMP	R0, R2");
+            E("        BLO	RTRNDX");
+            E("        SUB	R2, R0");
+            E("        BR	RTRNDM");
+            E("RTRNDX: MOV	(SP)+, R2");
+            E("        MOV	(SP)+, R1");
+            E("        RTS	PC");
+            E("");
             // ── RTGTIM: читать счётчик времени LTC ───────────────
             E("; RTGTIM — getTimer(): читать @#177546 (LTC).");
             E("; Возвращает текущее значение в R0.");
@@ -894,7 +924,108 @@ namespace CompMacro11
             E("        RTS\tPC");
             E("");
 
+                        // ── RTPSTR: вывод строки ─────────────────────────────
+            E("; RTPSTR — print_str(ptr): вывод строки байт за байтом, завершённой 0.");
+            E("RTPSTR:");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	6.(SP), R1");
+            E("RTPST1: MOVB	(R1)+, R0");
+            E("        BEQ	RTPST2");
+            E("RTPST3: TSTB	@#177564");
+            E("        BPL	RTPST3");
+            E("        MOVB	R0, @#177566");
+            E("        BR	RTPST1");
+            E("RTPST2: MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        RTS	PC");
+            E("");
+            // ── RTPRF: printf(fmt, ...) ───────────────────────
+            E("; RTPRF — printf(fmt, arg1, arg2, ...)");
+            E("; fmt — адрес строки формата (байты, 0-terminated)");
+            E("; аргументы идут выше fmt в стеке (caller-cleans-up)");
+            E("; %d = число (RTPNUM), %c = символ, %s = строка (RTPSTR),");
+            E("; \\n = CR, все остальные байты выводятся как есть");
+            E("RTPRF:");
+            E("        MOV	R5, -(SP)");
+            E("        MOV	SP, R5");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	4.(R5), R1");   // R1 = адрес строки формата
+            E("        MOV	#6., R2");       // R2 = смещение к первому аргументу (4+2=6)
+            E("RTPRF1: MOVB	(R1)+, R0");
+            E("        BIC	#177400, R0");
+            E("        BEQ	RTPRFX");
+            E("        CMP	R0, #'%");
+            E("        BNE	RTPRFO");
+            E("        MOVB	(R1)+, R0");
+            E("        BIC	#177400, R0");
+            E("        CMP	R0, #'d");
+            E("        BNE	RTPRFC");
+            E("        MOV	(R5), -(SP)");   // dummy R5 push
+            E("        MOV	R2(R5), -(SP)"); // push arg
+            E("        JSR	PC, RTPNUM");
+            E("        ADD	#4., SP");
+            E("        ADD	#2., R2");
+            E("        BR	RTPRF1");
+            E("RTPRFC: CMP	R0, #'c");
+            E("        BNE	RTPRFS");
+            E("        MOV	R2(R5), R0");
+            E("RTPRFW: TSTB	@#177564");
+            E("        BPL	RTPRFW");
+            E("        MOVB	R0, @#177566");
+            E("        ADD	#2., R2");
+            E("        BR	RTPRF1");
+            E("RTPRFS: CMP	R0, #'s");
+            E("        BNE	RTPRFN");
+            E("        MOV	R2(R5), -(SP)");
+            E("        JSR	PC, RTPSTR");
+            E("        ADD	#2., SP");
+            E("        ADD	#2., R2");
+            E("        BR	RTPRF1");
+            E("RTPRFN: CMP	R0, #'n");
+            E("        BNE	RTPRFO");
+            E("        MOV	#13., R0");
+            E("        BR	RTPRFW");
+            E("RTPRFO: TSTB	@#177564");
+            E("        BPL	RTPRFO");
+            E("        MOVB	R0, @#177566");
+            E("        BR	RTPRF1");
+            E("RTPRFX: MOV	(SP)+, R2");
+            E("        MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        MOV	(SP)+, R5");
+            E("        RTS	PC");
+            E("");
             // ── RTWKEY: блокирующее чтение (ждёт клавишу) ───────
+            // ── RTPCHR: вывод символа ────────────────────────────
+            E("; RTPCHR — print_char(c): вход R0 = символ");
+            E("RTPCHR:");
+            E("RTPCHR1: TSTB	@#177564");
+            E("        BPL	RTPCHR1");
+            E("        MOVB	R0, @#177566");
+            E("        RTS	PC");
+            E("");
+            // ── RTPNL: перевод строки ────────────────────────────
+            E("; RTPNL — print_nl(): вывод CR (13) + пауза для скроллинга.");
+            E("RTPNL:");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	#13., R0");      // CR
+            E("RTPNL1: TSTB	@#177564");
+            E("        BPL	RTPNL1");
+            E("        MOVB	R0, @#177566");
+            E("        MOV	#10., R0");      // LF (перевод строки)
+            E("RTPNL3: TSTB	@#177564");
+            E("        BPL	RTPNL3");
+            E("        MOVB	R0, @#177566");
+            E("        MOV	#2000., R1");  // пауза для скроллинга
+            E("RTPNL2: SOB	R1, RTPNL2");
+            E("        MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        RTS	PC");
+            E("");
             E("; RTWKEY / waitkey() — крутится пока не придёт символ.");
             E("; BIC #177600 убирает бит чётности (parity) УКНЦ.");
             E("RTWKEY:");
@@ -1813,6 +1944,7 @@ namespace CompMacro11
             E("CM1:    .BLKW\t640.");
             E("CM2:    .BLKW\t640.");
             E("CM3:    .BLKW\t640.");
+            E("RNDSEED: .WORD\t12345.");          // зерно генератора случайных
             E("SPBUF:  .BLKW\t15.");           // буфер строки спрайта (14 слов + хвост)
             E("FLPBUF: .BLKW\t15.");
             E("REVTAB:");
@@ -3836,10 +3968,8 @@ namespace CompMacro11
                 case "print_char":
                     if (c.Args.Count != 1)
                         throw new Exception($"Строка {c.Line}: print_char(c) требует 1 аргумент");
-                    GenExpr(c.Args[0]);
-                    EI("MOV", "R0, -(SP)");
+                    GenExpr(c.Args[0]);   // R0 = символ
                     EI("JSR", "PC, RTPCHR");
-                    EI("ADD", "#2., SP");
                     break;
 
                 case "print_nl":
@@ -3849,6 +3979,77 @@ namespace CompMacro11
                     break;
 
                 case "print_int":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: print_int(n) требует 1 аргумент");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTPNUM");
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "printf":
+                    if (c.Args.Count < 1)
+                        throw new Exception($"Строка {c.Line}: printf требует минимум 1 аргумент");
+                    // Inline: разбираем строку формата и генерируем вызовы
+                    if (!(c.Args[0] is StringLiteralExpr pfmt))
+                        throw new Exception($"Строка {c.Line}: первый аргумент printf должен быть строковым литералом");
+                    {
+                        int argIdx = 1;
+                        string fmt = pfmt.Value;
+                        int fi = 0;
+                        var sbLit = new System.Text.StringBuilder();
+                        void FlushLit() {
+                            if (sbLit.Length == 0) return;
+                            string litLbl = InternString(sbLit.ToString());
+                            EI("MOV", $"#{litLbl}, R0");
+                            EI("MOV", "R0, -(SP)");
+                            EI("JSR", "PC, RTPSTR");
+                            EI("ADD", "#2., SP");
+                            sbLit.Clear();
+                        }
+                        while (fi < fmt.Length) {
+                            char fch = fmt[fi];
+                            if (fch == '%' && fi + 1 < fmt.Length) {
+                                FlushLit();
+                                fi++;
+                                char spec = fmt[fi++];
+                                if (argIdx >= c.Args.Count)
+                                    throw new Exception($"Строка {c.Line}: printf: не хватает аргументов для %{spec}");
+                                GenExpr(c.Args[argIdx++]);
+                                if (spec == 'd') {
+                                    EI("MOV", "R0, -(SP)");
+                                    EI("JSR", "PC, RTPNUM");
+                                    EI("ADD", "#2., SP");
+                                } else if (spec == 'c') {
+                                    EI("JSR", "PC, RTPCHR");
+                                } else if (spec == 's') {
+                                    EI("MOV", "R0, -(SP)");
+                                    EI("JSR", "PC, RTPSTR");
+                                    EI("ADD", "#2., SP");
+                                }
+                            } else if (fch == '\n') {
+                                FlushLit();
+                                EI("JSR", "PC, RTPNL");
+                                fi++;
+                            } else {
+                                sbLit.Append(fch);
+                                fi++;
+                            }
+                        }
+                        FlushLit();
+                    }
+                    break;
+
+
+                case "print_str":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: print_str(s) требует 1 аргумент");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTPSTR");
+                    EI("ADD", "#2., SP");
+                    break;
+
                     if (c.Args.Count != 1)
                         throw new Exception($"Строка {c.Line}: print_int(n) требует 1 аргумент");
                     GenExpr(c.Args[0]);
@@ -3919,6 +4120,15 @@ namespace CompMacro11
                     if (c.Args.Count != 0)
                         throw new Exception($"Строка {c.Line}: getTimer() не принимает аргументов");
                     EI("JSR", "PC, RTGTIM");   // результат в R0
+                    break;
+
+                case "random":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: random(n) требует 1 аргумент");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTRAND");
+                    EI("ADD", "#2., SP");
                     break;
 
                 case "printnum":

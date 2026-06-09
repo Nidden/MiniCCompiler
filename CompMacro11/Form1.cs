@@ -121,6 +121,8 @@ namespace CompMacro11
         private SpriteEditor _spriteEditor;
         private string _emulatorPath = "";   // путь к UKNCBTL.exe
         private McProject _project = null;   // текущий проект
+        private string _projectSpritesPath = null;
+        private Button _btnSave = null;
 
         public Form1()
         {
@@ -139,6 +141,7 @@ namespace CompMacro11
             Font = F_UI;
             KeyPreview = true;
             KeyDown += OnKeyDown;
+            FormClosing += (_, __) => AppEnvironment.LastCode = _src.Text;
 
             // ── Toolbar ───────────────────────────────────────────
             var bar = new Panel { Dock = DockStyle.Top, Height = 46, BackColor = C_BG2 };
@@ -359,7 +362,8 @@ namespace CompMacro11
             Controls.Add(hdr);
             Controls.Add(bar);
 
-            _src.Text = LoadSample();
+            var lastCode = AppEnvironment.LastCode;
+            _src.Text = !string.IsNullOrEmpty(lastCode) ? lastCode : LoadSample();
             Highlight();
         }
 
@@ -448,6 +452,21 @@ namespace CompMacro11
             HelpFn(r, "getkey", "", "прочитать клавишу → код или 0 (неблокирующее)");
             HelpFn(r, "sprite", "x,y,w,h,ptr", "спрайт из массива данных (MOV — перезапись)");
             HelpFn(r, "spriteOr", "x,y,w,h,ptr", "спрайт через BIS (OR с экраном — прозрачность)");
+
+            HelpT(r, "\n═══ ВЫВОД ТЕКСТА ════════════════════════════════════════\n", Color.FromArgb(86, 156, 214));
+            HelpFn(r, "print_int", "n", "вывод числа (со знаком)");
+            HelpFn(r, "print_char", "c", "вывод одного символа по коду ASCII");
+            HelpFn(r, "print_str", "s", "вывод строки: print_str(\"hello\")");
+            HelpFn(r, "print_nl", "", "перевод строки (CR)");
+            HelpFn(r, "printf", "fmt, ...", "форматный вывод: printf(\"x=%d c=%c\\n\", x, c)");
+            HelpT(r, "\n  Форматы printf:\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    %d  — целое число (print_int)\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    %c  — символ по коду (print_char)\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    %s  — строковый литерал (print_str)\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    \\n — перевод строки\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "  Пример:\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    printf(\"x=%d, y=%d\\n\", x, y);\n", Color.FromArgb(181, 206, 168));
+            HelpT(r, "    printf(\"c=%c\\n\", 65);  // выведет c=A\n", Color.FromArgb(181, 206, 168));
 
             HelpT(r, "\n═══ basicGraphic — пакет попиксельной графики ═══════════\n", Color.FromArgb(78, 201, 176));
             HelpT(r, "  Фундамент: point(). Все остальные функции строятся поверх.\n", Color.FromArgb(150, 150, 150));
@@ -560,6 +579,26 @@ namespace CompMacro11
         }
 
         // ── Компиляция ────────────────────────────────────────────
+        private void UpdateSpritesPath()
+        {
+            if (_project != null)
+            {
+                string spritesDir = System.IO.Path.Combine(_project.ProjectDir, "sprites");
+                System.IO.Directory.CreateDirectory(spritesDir);
+                string path = System.IO.Path.Combine(spritesDir, "sprites.spr");
+                if (_spriteEditor != null && !_spriteEditor.IsDisposed)
+                    _spriteEditor.SpritesPath = path;
+                _projectSpritesPath = path;
+            }
+            else
+            {
+                if (_spriteEditor != null && !_spriteEditor.IsDisposed)
+                    _spriteEditor.SpritesPath = null;
+                _projectSpritesPath = null;
+            }
+        }
+
+
         private void Compile()
         {
             _linePanel.ErrorLine = -1;
@@ -572,6 +611,7 @@ namespace CompMacro11
             _out.Clear();
 
             string src = _src.Text;
+            AppEnvironment.LastCode = src;
             if (string.IsNullOrWhiteSpace(src))
             {
                 SetStatus("⚠  Пустой исходный код", true);
@@ -590,7 +630,8 @@ namespace CompMacro11
 
                 _out.ForeColor = C_TEXT;
                 _out.Text = asm;
-                SetStatus("✔  Компиляция успешна", false);
+                int asmLines = asm.Split('\n').Length;
+                SetStatus($"✔  OK  •  {asmLines} строк .mac", false);
                 ColorizeAsm();
             }
             catch (Exception ex)
@@ -793,8 +834,9 @@ namespace CompMacro11
         {
             try
             {
-                if (!System.IO.File.Exists(SpriteEditor.AutoSavePath)) return null;
-                var text = System.IO.File.ReadAllText(SpriteEditor.AutoSavePath, System.Text.Encoding.UTF8);
+                var _asp = _projectSpritesPath ?? ((_spriteEditor != null && !_spriteEditor.IsDisposed) ? _spriteEditor.SpritesPath : SpriteEditor.AutoSavePath);
+                if (!System.IO.File.Exists(_asp)) return null;
+                var text = System.IO.File.ReadAllText(_asp, System.Text.Encoding.UTF8);
                 text = text.Replace("\r\n", "\n");
                 var blocks = text.Split(new[] { "---\n" }, StringSplitOptions.RemoveEmptyEntries);
                 var result = new List<Sprite>();
@@ -1105,6 +1147,7 @@ int main(void) {
                 RecentProjects.Add(_project.ProjectPath);
                 AppEnvironment.LastProjectPath = _project.ProjectPath;
                 _src.Text = _project.ReadMainCode();
+                UpdateSpritesPath();
                 UpdateTitle();
                 SetStatus("✓ Проект создан: " + _project.Name, false);
             }
@@ -1133,6 +1176,8 @@ int main(void) {
                 RecentProjects.Add(path);
                 AppEnvironment.LastProjectPath = path;
                 _src.Text = _project.ReadMainCode();
+                UpdateSpritesPath();
+                if (_btnSave != null) _btnSave.Visible = true;
                 UpdateTitle();
                 SetStatus("✓ Открыт: " + _project.Name, false);
             }
@@ -1147,6 +1192,7 @@ int main(void) {
         {
             if (_project == null) return;
             _project.WriteMainCode(_src.Text);
+            AppEnvironment.LastCode = _src.Text;
             _project.Save();
             UpdateTitle();
             SetStatus("✓ Сохранено", false);
@@ -1181,6 +1227,8 @@ int main(void) {
         {
             if (!ProjectCheckSave()) return;
             _project = null;
+            UpdateSpritesPath();
+            if (_btnSave != null) _btnSave.Visible = false;
             UpdateTitle();
             SetStatus("Проект закрыт", false);
         }

@@ -41,7 +41,7 @@ namespace CompMacro11
                 // тип ident '=' или ';' → глобальная переменная
                 // тип ident '(' → функция
                 if ((Check(TokenType.KwInt) || Check(TokenType.KwBool)) && PeekIsGlobal())
-                    prog.Globals.Add(ParseGlobalVar());
+                    prog.Globals.AddRange(ParseGlobalVar());
                 else
                     prog.Functions.Add(ParseFuncDecl());
             }
@@ -64,21 +64,28 @@ namespace CompMacro11
                    t == TokenType.Semicolon || t == TokenType.Comma;
         }
 
-        private VarDeclStmtNode ParseGlobalVar()
+        private List<VarDeclStmtNode> ParseGlobalVar()
         {
             int line = Cur.Line;
             var t = ParseBaseType();
-            var name = Expect(TokenType.Identifier).Value;
-            ParseArrayDims(t, firstCanBeEmpty: false);
-            ExprNode init = null;
-            ArrayInitNode arrInit = null;
-            if (Match(TokenType.Assign))
+            var decls = new List<VarDeclStmtNode>();
+            do
             {
-                if (t.IsArray) arrInit = ParseArrayInit(t);
-                else init = ParseExpr();
+                var vt = new MiniCType { IsVoid = t.IsVoid, IsBool = t.IsBool };
+                var name = Expect(TokenType.Identifier).Value;
+                ParseArrayDims(vt, firstCanBeEmpty: false);
+                ExprNode init = null;
+                ArrayInitNode arrInit = null;
+                if (Match(TokenType.Assign))
+                {
+                    if (vt.IsArray) arrInit = ParseArrayInit(vt);
+                    else init = ParseExpr();
+                }
+                decls.Add(new VarDeclStmtNode { Name = name, Type = vt, Init = init, ArrayInit = arrInit, Line = line });
             }
+            while (Match(TokenType.Comma));
             Expect(TokenType.Semicolon);
-            return new VarDeclStmtNode { Name = name, Type = t, Init = init, ArrayInit = arrInit, Line = line };
+            return decls;
         }
 
         // ── Тип (int, bool или void) с размерами массива ──────────
