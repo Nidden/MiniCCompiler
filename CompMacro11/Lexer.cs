@@ -27,7 +27,7 @@ namespace CompMacro11
         PlusPlus, MinusMinus,
         // Разделители
         LParen, RParen, LBrace, RBrace, LBracket, RBracket,
-        Semicolon, Comma, Colon,
+        Semicolon, Comma, Colon, Question,
         // Специальные
         EOF
     }
@@ -91,9 +91,21 @@ namespace CompMacro11
                 else if (char.IsDigit(c))
                 {
                     var sb = new StringBuilder();
-                    while (_pos < _src.Length && char.IsDigit(Peek()))
-                        sb.Append(Advance());
-                    tokens.Add(new Token(TokenType.IntLiteral, sb.ToString(), line));
+                    sb.Append(Advance()); // первая цифра
+                    if (sb[0] == '0' && _pos < _src.Length && (Peek() == 'x' || Peek() == 'X'))
+                    {
+                        sb.Append(Advance()); // 'x'
+                        while (_pos < _src.Length && (char.IsDigit(Peek()) || (Peek() >= 'a' && Peek() <= 'f') || (Peek() >= 'A' && Peek() <= 'F')))
+                            sb.Append(Advance());
+                        int val = Convert.ToInt32(sb.ToString(), 16);
+                        tokens.Add(new Token(TokenType.IntLiteral, val.ToString(), line));
+                    }
+                    else
+                    {
+                        while (_pos < _src.Length && char.IsDigit(Peek()))
+                            sb.Append(Advance());
+                        tokens.Add(new Token(TokenType.IntLiteral, sb.ToString(), line));
+                    }
                 }
                 else
                 {
@@ -188,6 +200,7 @@ namespace CompMacro11
                         case '[': Advance(); tok = new Token(TokenType.LBracket, "[", line); break;
                         case ']': Advance(); tok = new Token(TokenType.RBracket, "]", line); break;
                         case ':': Advance(); tok = new Token(TokenType.Colon, ":", line); break;
+                        case '?': Advance(); tok = new Token(TokenType.Question, "?", line); break;
                         case ';': Advance(); tok = new Token(TokenType.Semicolon, ";", line); break;
                         case ',': Advance(); tok = new Token(TokenType.Comma, ",", line); break;
                         case '"':

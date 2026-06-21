@@ -137,6 +137,11 @@ namespace CompMacro11
         public ExprNode Left, Right;
     }
 
+    public class TernaryExpr : ExprNode
+    {
+        public ExprNode Cond, Then, Else;
+    }
+
     public class AssignExpr : ExprNode
     {
         public string Op; // "=", "+=", "-=", ...
@@ -155,6 +160,7 @@ namespace CompMacro11
     {
         public List<object> Elements; // int или ArrayInitNode (вложенные)
         public List<int> Flat = new List<int>();
+        public List<string> FlatLabels = new List<string>(); // null = число, иначе имя глобала
     }
 
     // ── Одна ветка switch ────────────────────────────────────

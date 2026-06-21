@@ -121,6 +121,8 @@ namespace CompMacro11
         private SpriteEditor _spriteEditor;
         private string _emulatorPath = "";   // путь к UKNCBTL.exe
         private McProject _project = null;   // текущий проект
+        private string _projectSpritesPath = null;
+        private Button _btnSave = null;
 
         public Form1()
         {
@@ -139,6 +141,7 @@ namespace CompMacro11
             Font = F_UI;
             KeyPreview = true;
             KeyDown += OnKeyDown;
+            FormClosing += (_, __) => AppEnvironment.LastCode = _src.Text;
 
             // ── Toolbar ───────────────────────────────────────────
             var bar = new Panel { Dock = DockStyle.Top, Height = 46, BackColor = C_BG2 };
@@ -359,7 +362,8 @@ namespace CompMacro11
             Controls.Add(hdr);
             Controls.Add(bar);
 
-            _src.Text = LoadSample();
+            var lastCode = AppEnvironment.LastCode;
+            _src.Text = !string.IsNullOrEmpty(lastCode) ? lastCode : LoadSample();
             Highlight();
         }
 
@@ -449,6 +453,34 @@ namespace CompMacro11
             HelpFn(r, "sprite", "x,y,w,h,ptr", "спрайт из массива данных (MOV — перезапись)");
             HelpFn(r, "spriteOr", "x,y,w,h,ptr", "спрайт через BIS (OR с экраном — прозрачность)");
 
+            HelpT(r, "\n═══ ВЫВОД ТЕКСТА ════════════════════════════════════════\n", Color.FromArgb(86, 156, 214));
+            HelpFn(r, "print_int", "n", "вывод числа (со знаком)");
+            HelpFn(r, "print_char", "c", "вывод одного символа по коду ASCII");
+            HelpFn(r, "print_str", "s", "вывод строки: print_str(\"hello\")");
+            HelpFn(r, "print_nl", "", "перевод строки (CR)");
+            HelpFn(r, "printf", "fmt, ...", "форматный вывод: printf(\"x=%d c=%c\\n\", x, c)");
+            HelpT(r, "\n  Форматы printf:\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    %d  — целое число (print_int)\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    %c  — символ по коду (print_char)\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    %s  — строковый литерал (print_str)\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    \\n — перевод строки\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "  Пример:\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    printf(\"x=%d, y=%d\\n\", x, y);\n", Color.FromArgb(181, 206, 168));
+            HelpT(r, "    printf(\"c=%c\\n\", 65);  // выведет c=A\n", Color.FromArgb(181, 206, 168));
+
+            HelpT(r, "\n═══ ПОЗИЦИЯ И ЦВЕТ ТЕКСТА ═══════════════════════════════\n", Color.FromArgb(86, 156, 214));
+            HelpFn(r, "gotoxy", "col, row", "курсор в (колонка, строка). Сначала X, потом Y");
+            HelpFn(r, "setTextColor", "c", "цвет текста 0..7 (см. таблицу ниже)");
+            HelpT(r, "\n  Цвета setTextColor (выверено на эмуляторе):\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    0 = чёрный    4 = зелёный\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    1 = синий     5 = cyan (голубой)\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    2 = красный   6 = жёлтый\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    3 = magenta   7 = белый\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "  (биты: 1=синий, 2=красный, 4=зелёный — складываются)\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "  Пример:\n", Color.FromArgb(150, 150, 150));
+            HelpT(r, "    setTextColor(6); gotoxy(10, 5); print_str(\"GOLD\");\n", Color.FromArgb(181, 206, 168));
+            HelpT(r, "  Внимание: текст и графику (cls) в одной программе мешать нельзя.\n", Color.FromArgb(200, 150, 100));
+
             HelpT(r, "\n═══ basicGraphic — пакет попиксельной графики ═══════════\n", Color.FromArgb(78, 201, 176));
             HelpT(r, "  Фундамент: point(). Все остальные функции строятся поверх.\n", Color.FromArgb(150, 150, 150));
             HelpT(r, "  Экран: 320×264 (режим 0/2) или 640×264 (режим 1/3), 4 цвета.\n", Color.FromArgb(150, 150, 150));
@@ -461,6 +493,13 @@ namespace CompMacro11
             HelpFn(r, "fill_grad_h", "x, y, w, h, fg, bg", "горизонтальный градиент лево→право. fg→bg через 8 уровней.");
             HelpFn(r, "fill_grad_v", "x, y, w, h, fg, bg", "вертикальный градиент верх→низ. fg→bg через 8 уровней.");
             HelpFn(r, "random", "n", "случайное число 0..n-1. LFSR, период 65535. Быстрый.");
+            HelpFn(r, "vsync", "", "ждать тик таймера 50 Гц — стабильная скорость игр");
+            HelpFn(r, "sin256", "a", "синус: угол 0..255 = круг, результат -256..256");
+            HelpFn(r, "cos256", "a", "косинус: cos256(a) = sin256(a+64)");
+            HelpFn(r, "abs", "n", "модуль числа");
+            HelpFn(r, "min", "a, b", "минимум из двух");
+            HelpFn(r, "max", "a, b", "максимум из двух");
+            HelpFn(r, "clamp", "v, lo, hi", "ограничить v диапазоном [lo..hi]");
 
             HelpT(r, "\n═══ ЦВЕТА ══════════════════════════════════════════════\n", Color.FromArgb(86, 156, 214));
             HelpKv(r, "0", "чёрный   (0)");
@@ -485,9 +524,16 @@ namespace CompMacro11
             HelpT(r, "  Клетка 2×32 = видимый прямоугольник 16×32 пикселей\n", C_TEXT);
 
             HelpT(r, "\n═══ ГОРЯЧИЕ КЛАВИШИ РЕДАКТОРА ══════════════════════════\n", Color.FromArgb(86, 156, 214));
-            HelpT(r, "  F5       — компилировать\n", C_TEXT);
-            HelpT(r, "  Ctrl+D   — дублировать строку\n", C_TEXT);
-            HelpT(r, "  Esc      — закрыть справку\n", C_TEXT);
+            HelpT(r, "  F5         — компилировать\n", C_TEXT);
+            HelpT(r, "  Ctrl+D     — дублировать строку\n", C_TEXT);
+            HelpT(r, "  Ctrl+/     — комментировать/раскомментировать\n", C_TEXT);
+            HelpT(r, "  Tab        — отступ 4 пробела (или сдвиг блока)\n", C_TEXT);
+            HelpT(r, "  Shift+Tab  — убрать отступ\n", C_TEXT);
+            HelpT(r, "  Enter      — автоотступ (доп. отступ после '{')\n", C_TEXT);
+            HelpT(r, "  Alt+↑ / ↓  — переместить строку вверх/вниз\n", C_TEXT);
+            HelpT(r, "  ( [ { \"     — автозакрытие пар (оборачивает выделение)\n", C_TEXT);
+            HelpT(r, "  Ctrl+Z/Y   — отмена/повтор\n", C_TEXT);
+            HelpT(r, "  Esc        — закрыть справку\n", C_TEXT);
 
             r.SelectionStart = 0;
             r.ScrollToCaret();
@@ -531,12 +577,290 @@ namespace CompMacro11
                 return;
             }
 
+            // Ctrl+D — дублировать строку
             if (e.Control && e.KeyCode == Keys.D)
             {
                 DuplicateLine();
-                e.Handled = true;
-                e.SuppressKeyPress = true;
+                e.Handled = true; e.SuppressKeyPress = true;
+                return;
             }
+
+            // Ctrl+/ — комментировать/раскомментировать
+            if (e.Control && (e.KeyCode == Keys.Oem2 || e.KeyCode == Keys.OemQuestion))
+            {
+                ToggleComment();
+                e.Handled = true; e.SuppressKeyPress = true;
+                return;
+            }
+
+            // Alt+↑ / Alt+↓ — переместить строку
+            if (e.Alt && e.KeyCode == Keys.Up)
+            {
+                MoveLine(-1);
+                e.Handled = true; e.SuppressKeyPress = true;
+                return;
+            }
+            if (e.Alt && e.KeyCode == Keys.Down)
+            {
+                MoveLine(1);
+                e.Handled = true; e.SuppressKeyPress = true;
+                return;
+            }
+
+            // Умный Backspace — удалить отступ 4 пробела разом
+            if (e.KeyCode == Keys.Back && !e.Control && _src.SelectionLength == 0)
+            {
+                int ls = _src.GetFirstCharIndexOfCurrentLine();
+                int caret = _src.SelectionStart;
+                int col = caret - ls;
+                if (col > 0 && col % 4 == 0)
+                {
+                    string line = _src.Lines.Length > 0 ? _src.Lines[_src.GetLineFromCharIndex(ls)] : "";
+                    bool onlySpaces = true;
+                    for (int k = 0; k < col && k < line.Length; k++)
+                        if (line[k] != ' ') { onlySpaces = false; break; }
+                    if (onlySpaces)
+                    {
+                        _src.Select(caret - 4, 4);
+                        _src.SelectedText = "";
+                        e.Handled = true; e.SuppressKeyPress = true;
+                        return;
+                    }
+                }
+            }
+
+            // Over-type: если печатаем закрывающую скобку/кавычку, а она уже есть справа — перешагнуть
+            if (!e.Control && !e.Alt && _src.SelectionLength == 0 && _src.SelectionStart < _src.TextLength)
+            {
+                char nextCh = _src.Text[_src.SelectionStart];
+                char typed = '\0';
+                if (e.KeyCode == Keys.OemCloseBrackets && e.Shift) typed = '}';
+                else if (e.KeyCode == Keys.OemCloseBrackets && !e.Shift) typed = ']';
+                else if (e.KeyCode == Keys.D0 && e.Shift) typed = ')';
+                else if (e.KeyCode == Keys.OemQuotes && e.Shift) typed = '"';
+                if (typed != '\0' && nextCh == typed)
+                {
+                    _src.SelectionStart = _src.SelectionStart + 1;
+                    e.Handled = true; e.SuppressKeyPress = true;
+                    return;
+                }
+            }
+
+            // Tab — 4 пробела (или отступ выделения)
+            if (e.KeyCode == Keys.Tab && !e.Control)
+            {
+                if (e.Shift) Unindent(); else IndentOrTab();
+                e.Handled = true; e.SuppressKeyPress = true;
+                return;
+            }
+
+            // Enter — автоотступ
+            if (e.KeyCode == Keys.Enter && !e.Control)
+            {
+                AutoIndentNewline();
+                e.Handled = true; e.SuppressKeyPress = true;
+                return;
+            }
+
+            // Автозакрытие скобок и кавычек
+            if (!e.Control && !e.Alt)
+            {
+                char open = '\0', close = '\0';
+                if (e.KeyCode == Keys.OemOpenBrackets && e.Shift) { open = '{'; close = '}'; }
+                else if (e.KeyCode == Keys.OemOpenBrackets && !e.Shift) { open = '['; close = ']'; }
+                else if (e.KeyCode == Keys.D9 && e.Shift) { open = '('; close = ')'; }
+                else if (e.KeyCode == Keys.OemQuotes && e.Shift) { open = '"'; close = '"'; }
+                if (open != '\0')
+                {
+                    AutoClose(open, close);
+                    e.Handled = true; e.SuppressKeyPress = true;
+                    return;
+                }
+            }
+        }
+
+        // ── Tab → 4 пробела; для выделения — отступ блока ─────────
+        private void IndentOrTab()
+        {
+            if (_src.SelectionLength > 0)
+            {
+                IndentBlock(true);
+                return;
+            }
+            int col = _src.SelectionStart - _src.GetFirstCharIndexOfCurrentLine();
+            int spaces = 4 - (col % 4);
+            _src.SelectedText = new string(' ', spaces);
+        }
+
+        private void Unindent()
+        {
+            if (_src.SelectionLength > 0) { IndentBlock(false); return; }
+            int lineStart = _src.GetFirstCharIndexOfCurrentLine();
+            int lineIdx = _src.GetLineFromCharIndex(lineStart);
+            string line = lineIdx < _src.Lines.Length ? _src.Lines[lineIdx] : "";
+            int remove = 0;
+            while (remove < 4 && remove < line.Length && line[remove] == ' ') remove++;
+            if (remove > 0)
+            {
+                int caret = _src.SelectionStart;
+                _src.Select(lineStart, remove);
+                _src.SelectedText = "";
+                _src.SelectionStart = Math.Max(lineStart, caret - remove);
+            }
+        }
+
+        private void IndentBlock(bool add)
+        {
+            int selStart = _src.SelectionStart;
+            int selEnd = selStart + _src.SelectionLength;
+            int first = _src.GetLineFromCharIndex(selStart);
+            int last = _src.GetLineFromCharIndex(selEnd);
+            BeginRtbUpdate(_src);
+            for (int i = last; i >= first; i--)
+            {
+                int ls = _src.GetFirstCharIndexFromLine(i);
+                if (ls < 0) continue;
+                if (add)
+                {
+                    _src.Select(ls, 0);
+                    _src.SelectedText = "    ";
+                }
+                else
+                {
+                    string line = _src.Lines[i];
+                    int rem = 0;
+                    while (rem < 4 && rem < line.Length && line[rem] == ' ') rem++;
+                    if (rem > 0) { _src.Select(ls, rem); _src.SelectedText = ""; }
+                }
+            }
+            int newFirst = _src.GetFirstCharIndexFromLine(first);
+            int newLast = _src.GetFirstCharIndexFromLine(last);
+            int lastLen = (last < _src.Lines.Length) ? _src.Lines[last].Length : 0;
+            _src.Select(newFirst, (newLast + lastLen) - newFirst);
+            EndRtbUpdate(_src);
+            Highlight();
+        }
+
+        // ── Enter с сохранением отступа + доп. отступ после '{' ──
+        private void AutoIndentNewline()
+        {
+            int lineStart = _src.GetFirstCharIndexOfCurrentLine();
+            int lineIdx = _src.GetLineFromCharIndex(lineStart);
+            string line = lineIdx < _src.Lines.Length ? _src.Lines[lineIdx] : "";
+
+            int indent = 0;
+            while (indent < line.Length && line[indent] == ' ') indent++;
+
+            string pad = new string(' ', indent);
+            int caret = _src.SelectionStart;
+            string trimmedBefore = line.Substring(0, Math.Min(caret - lineStart, line.Length)).TrimEnd();
+            bool afterOpen = trimmedBefore.EndsWith("{");
+
+            // Если курсор между { и } — раскрыть блок
+            bool betweenBraces = afterOpen && caret < _src.TextLength && _src.Text[caret] == '}';
+
+            if (betweenBraces)
+            {
+                string inner = pad + "    ";
+                _src.SelectedText = "\n" + inner + "\n" + pad;
+                _src.SelectionStart = caret + 1 + inner.Length;
+            }
+            else if (afterOpen)
+            {
+                string inner = pad + "    ";
+                _src.SelectedText = "\n" + inner;
+                _src.SelectionStart = caret + 1 + inner.Length;
+            }
+            else
+            {
+                _src.SelectedText = "\n" + pad;
+                _src.SelectionStart = caret + 1 + pad.Length;
+            }
+        }
+
+        // ── Автозакрытие парных символов ─────────────────────────
+        private void AutoClose(char open, char close)
+        {
+            if (_src.SelectionLength > 0)
+            {
+                // обернуть выделение
+                string sel = _src.SelectedText;
+                int st = _src.SelectionStart;
+                _src.SelectedText = open + sel + close;
+                _src.SelectionStart = st + 1;
+                _src.SelectionLength = sel.Length;
+                return;
+            }
+            int caret = _src.SelectionStart;
+            _src.SelectedText = open.ToString() + close.ToString();
+            _src.SelectionStart = caret + 1;
+        }
+
+        // ── Ctrl+/ — комментирование строк ───────────────────────
+        private void ToggleComment()
+        {
+            int selStart = _src.SelectionStart;
+            int selEnd = selStart + _src.SelectionLength;
+            int first = _src.GetLineFromCharIndex(selStart);
+            int last = _src.GetLineFromCharIndex(selEnd);
+
+            // Решаем: добавлять или убирать (если ВСЕ строки закомментированы — убираем)
+            bool allCommented = true;
+            for (int i = first; i <= last; i++)
+            {
+                string l = _src.Lines[i].TrimStart();
+                if (l.Length > 0 && !l.StartsWith("//")) { allCommented = false; break; }
+            }
+
+            BeginRtbUpdate(_src);
+            for (int i = last; i >= first; i--)
+            {
+                int ls = _src.GetFirstCharIndexFromLine(i);
+                if (ls < 0) continue;
+                string line = _src.Lines[i];
+                if (allCommented)
+                {
+                    int p = line.IndexOf("//");
+                    if (p >= 0)
+                    {
+                        int rem = (p + 2 < line.Length && line[p + 2] == ' ') ? 3 : 2;
+                        _src.Select(ls + p, rem);
+                        _src.SelectedText = "";
+                    }
+                }
+                else
+                {
+                    if (line.Trim().Length == 0) continue;
+                    int indent = 0;
+                    while (indent < line.Length && line[indent] == ' ') indent++;
+                    _src.Select(ls + indent, 0);
+                    _src.SelectedText = "// ";
+                }
+            }
+            EndRtbUpdate(_src);
+            Highlight();
+        }
+
+        // ── Alt+↑/↓ — переместить строку ─────────────────────────
+        private void MoveLine(int dir)
+        {
+            int caret = _src.SelectionStart;
+            int idx = _src.GetLineFromCharIndex(caret);
+            int colInLine = caret - _src.GetFirstCharIndexFromLine(idx);
+            var lines = new System.Collections.Generic.List<string>(_src.Lines);
+            int target = idx + dir;
+            if (target < 0 || target >= lines.Count) return;
+
+            string tmp = lines[idx];
+            lines[idx] = lines[target];
+            lines[target] = tmp;
+
+            BeginRtbUpdate(_src);
+            _src.Text = string.Join("\n", lines);
+            int newStart = _src.GetFirstCharIndexFromLine(target) + colInLine;
+            _src.SelectionStart = Math.Min(newStart, _src.TextLength);
+            EndRtbUpdate(_src);
+            Highlight();
         }
 
         // ── Ctrl+D: дублировать текущую строку ───────────────────
@@ -560,6 +884,26 @@ namespace CompMacro11
         }
 
         // ── Компиляция ────────────────────────────────────────────
+        private void UpdateSpritesPath()
+        {
+            if (_project != null)
+            {
+                string spritesDir = System.IO.Path.Combine(_project.ProjectDir, "sprites");
+                System.IO.Directory.CreateDirectory(spritesDir);
+                string path = System.IO.Path.Combine(spritesDir, "sprites.spr");
+                if (_spriteEditor != null && !_spriteEditor.IsDisposed)
+                    _spriteEditor.SpritesPath = path;
+                _projectSpritesPath = path;
+            }
+            else
+            {
+                if (_spriteEditor != null && !_spriteEditor.IsDisposed)
+                    _spriteEditor.SpritesPath = null;
+                _projectSpritesPath = null;
+            }
+        }
+
+
         private void Compile()
         {
             _linePanel.ErrorLine = -1;
@@ -572,6 +916,7 @@ namespace CompMacro11
             _out.Clear();
 
             string src = _src.Text;
+            AppEnvironment.LastCode = src;
             if (string.IsNullOrWhiteSpace(src))
             {
                 SetStatus("⚠  Пустой исходный код", true);
@@ -590,7 +935,8 @@ namespace CompMacro11
 
                 _out.ForeColor = C_TEXT;
                 _out.Text = asm;
-                SetStatus("✔  Компиляция успешна", false);
+                int asmLines = asm.Split('\n').Length;
+                SetStatus($"✔  OK  •  {asmLines} строк .mac", false);
                 ColorizeAsm();
             }
             catch (Exception ex)
@@ -667,7 +1013,24 @@ namespace CompMacro11
             System.IO.File.WriteAllText(macPath, _out.Text, System.Text.Encoding.ASCII);
 
             string runbat = System.IO.Path.Combine(workDir, "Run.bat");
+            System.DateTime started = System.DateTime.Now;
             RunProcess(runbat, "", workDir, out string macroOut);
+
+            // 3. Показать путь к собранному .SAV в статусной строке
+            string savPath = System.IO.Path.Combine(workDir, "A.SAV");
+            if (System.IO.File.Exists(savPath))
+            {
+                var savTime = System.IO.File.GetLastWriteTime(savPath);
+                long savSize = new System.IO.FileInfo(savPath).Length;
+                if (savTime >= started.AddSeconds(-2))
+                    SetStatus($"✔  A.SAV собран  •  {savSize} байт  •  {savPath}", false);
+                else
+                    SetStatus($"⚠  A.SAV НЕ обновился (старый от {savTime:HH:mm:ss})  •  {savPath}", true);
+            }
+            else
+            {
+                SetStatus($"⚠  A.SAV не найден в {workDir} — проверь Run.bat", true);
+            }
 
 
         }
@@ -793,8 +1156,9 @@ namespace CompMacro11
         {
             try
             {
-                if (!System.IO.File.Exists(SpriteEditor.AutoSavePath)) return null;
-                var text = System.IO.File.ReadAllText(SpriteEditor.AutoSavePath, System.Text.Encoding.UTF8);
+                var _asp = _projectSpritesPath ?? ((_spriteEditor != null && !_spriteEditor.IsDisposed) ? _spriteEditor.SpritesPath : SpriteEditor.AutoSavePath);
+                if (!System.IO.File.Exists(_asp)) return null;
+                var text = System.IO.File.ReadAllText(_asp, System.Text.Encoding.UTF8);
                 text = text.Replace("\r\n", "\n");
                 var blocks = text.Split(new[] { "---\n" }, StringSplitOptions.RemoveEmptyEntries);
                 var result = new List<Sprite>();
@@ -1105,6 +1469,7 @@ int main(void) {
                 RecentProjects.Add(_project.ProjectPath);
                 AppEnvironment.LastProjectPath = _project.ProjectPath;
                 _src.Text = _project.ReadMainCode();
+                UpdateSpritesPath();
                 UpdateTitle();
                 SetStatus("✓ Проект создан: " + _project.Name, false);
             }
@@ -1133,6 +1498,8 @@ int main(void) {
                 RecentProjects.Add(path);
                 AppEnvironment.LastProjectPath = path;
                 _src.Text = _project.ReadMainCode();
+                UpdateSpritesPath();
+                if (_btnSave != null) _btnSave.Visible = true;
                 UpdateTitle();
                 SetStatus("✓ Открыт: " + _project.Name, false);
             }
@@ -1147,6 +1514,7 @@ int main(void) {
         {
             if (_project == null) return;
             _project.WriteMainCode(_src.Text);
+            AppEnvironment.LastCode = _src.Text;
             _project.Save();
             UpdateTitle();
             SetStatus("✓ Сохранено", false);
@@ -1181,6 +1549,8 @@ int main(void) {
         {
             if (!ProjectCheckSave()) return;
             _project = null;
+            UpdateSpritesPath();
+            if (_btnSave != null) _btnSave.Visible = false;
             UpdateTitle();
             SetStatus("Проект закрыт", false);
         }
