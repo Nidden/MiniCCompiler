@@ -181,6 +181,9 @@ namespace CompMacro11
             _autoSaveTimer = new System.Windows.Forms.Timer { Interval = 2000 };
             _autoSaveTimer.Tick += (s, e) => { _autoSaveTimer.Stop(); AutoSave(); };
 
+            // При закрытии — гарантированно сохранить (вдруг таймер не успел)
+            FormClosing += (s, e) => { _autoSaveTimer.Stop(); AutoSave(); };
+
             BuildUI();
 
             // AutoLoad ПОСЛЕ BuildUI — контролы уже созданы

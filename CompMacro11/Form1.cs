@@ -195,6 +195,11 @@ namespace CompMacro11
                         _src.SelectionStart = 0;
                         Highlight();
                     });
+                    // Синхронизируем путь файла спрайтов с тем, откуда читает
+                    // компилятор (проектный sprites/sprites.spr или автосейв).
+                    // Иначе редактор сохранял бы в одно место, а компилятор
+                    // читал из другого → "спрайт не найден" при закрытом редакторе.
+                    UpdateSpritesPath();
                 }
                 if (_spriteEditor.Visible)
                     _spriteEditor.BringToFront();
