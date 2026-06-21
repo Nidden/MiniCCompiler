@@ -565,9 +565,9 @@ namespace CompMacro11
             E("        MOVB	R0, @#177566");
             E("        RTS	PC");
             E("");
-            // ── RTGOTO: gotoxy(col,row) через ESC Y (VT52) ───────
-            E("; RTGOTO — gotoxy(col,row): ESC Y row+32 col+32.");
-            E("; 4.(R5)=col 6.(R5)=row");
+            // ── RTGOTO: gotoxy(x,y) через ESC Y (VT52) ───────────
+            E("; RTGOTO — gotoxy(x,y): ESC Y y+32 x+32 (VT52: строка раньше колонки).");
+            E("; 4.(R5)=x (колонка)  6.(R5)=y (строка)");
             E("RTGOTO:");
             E("        MOV	R5, -(SP)");
             E("        MOV	SP, R5");
@@ -576,10 +576,10 @@ namespace CompMacro11
             E("        JSR	PC, RTPUTC");
             E("        MOV	#89., R0");      // 'Y'
             E("        JSR	PC, RTPUTC");
-            E("        MOV	4.(R5), R0");    // col (x) — первым
+            E("        MOV	6.(R5), R0");    // y (строка) — VT52 первым
             E("        ADD	#32., R0");
             E("        JSR	PC, RTPUTC");
-            E("        MOV	6.(R5), R0");    // row (y) — вторым
+            E("        MOV	4.(R5), R0");    // x (колонка) — вторым
             E("        ADD	#32., R0");
             E("        JSR	PC, RTPUTC");
             E("        MOV	(SP)+, R0");

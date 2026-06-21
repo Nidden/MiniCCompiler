@@ -512,8 +512,8 @@ RTPUTC1: TSTB	@#177564
         MOVB	R0, @#177566
         RTS	PC
 
-; RTGOTO ? gotoxy(col,row): ESC Y row+32 col+32.
-; 4.(R5)=col 6.(R5)=row
+; RTGOTO ? gotoxy(x,y): ESC Y y+32 x+32 (VT52: ?????? ?????? ???????).
+; 4.(R5)=x (???????)  6.(R5)=y (??????)
 RTGOTO:
         MOV	R5, -(SP)
         MOV	SP, R5
@@ -522,10 +522,10 @@ RTGOTO:
         JSR	PC, RTPUTC
         MOV	#89., R0
         JSR	PC, RTPUTC
-        MOV	4.(R5), R0
+        MOV	6.(R5), R0
         ADD	#32., R0
         JSR	PC, RTPUTC
-        MOV	6.(R5), R0
+        MOV	4.(R5), R0
         ADD	#32., R0
         JSR	PC, RTPUTC
         MOV	(SP)+, R0
@@ -1402,329 +1402,76 @@ SPBUF:  .BLKW	15.
         .PSECT	CODE, RO, I
 
 
-DRAW:
-        MOV	R5, -(SP)
-        MOV	SP, R5
-        SUB	#4., SP
-L0000:
-        CLR	-2.(R5)
-        CLR	-4.(R5)
-        MOV	4.(R5), R0
-        MOV	R0, R1
-        MOV	#4., R0
-        ASL	R1
-        ASL	R1
-        MOV	R1, R0
-        MOV	R0, -2.(R5)
-        MOV	6.(R5), R0
-        MOV	R0, R1
-        MOV	#4., R0
-        ASL	R1
-        ASL	R1
-        MOV	R1, R0
-        MOV	R0, -4.(R5)
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#1., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#2., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#3., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#1., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#1., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#1., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#1., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#2., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#1., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#3., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#2., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#2., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#1., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#2., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#2., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#2., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#3., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#3., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#3., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#1., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#3., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#2., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	#1., R0
-        MOV	R0, -(SP)
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#3., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, R1
-        MOV	#3., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -(SP)
-        JSR	PC, RTPPNT
-        ADD	#6., SP
-        MOV	R5, SP
-        MOV	(SP)+, R5
-        RTS	PC
-
 MAIN:
         MOV	R5, -(SP)
         MOV	SP, R5
-        SUB	#8., SP
-L0001:
-        CLR	-2.(R5)
-        CLR	-4.(R5)
-        CLR	-6.(R5)
-        CLR	-8.(R5)
-        CLR	R0
-        JSR	PC, RTCLS
-        CLR	-2.(R5)
-        CLR	R0
-        CLR	-4.(R5)
-        CLR	R0
-        CLR	-8.(R5)
-        CLR	R0
-L0002:
-        MOV	-8.(R5), R0
-        MOV	R0, -(SP)
-        MOV	#5280., R0
-        MOV	(SP)+, R1
-        CMP	R1, R0
-        BLT	L0004
-        JMP	L0003
-L0004:
-        MOV	-4.(R5), R0
-        MOV	R0, -(SP)
-        MOV	-2.(R5), R0
-        MOV	R0, -(SP)
-        JSR	PC, DRAW
-        ADD	#4., SP
-        ADD	#27., -2.(R5)
-        MOV	-2.(R5), R0
-        CLR	-6.(R5)
-        CLR	R0
-        MOV	-2.(R5), R0
-        MOV	R0, -(SP)
-        MOV	#80., R0
-        MOV	(SP)+, R1
-        CMP	R1, R0
-        BGE	L0007
-        JMP	L0005
-L0007:
-        SUB	#80., -2.(R5)
-        MOV	-2.(R5), R0
-        MOV	#1., -6.(R5)
+        NOP	; no locals
+L0000:
         MOV	#1., R0
-L0005:
-        MOV	-4.(R5), R0
-        MOV	R0, R1
-        MOV	#4., R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, R1
-        MOV	-6.(R5), R0
-        ADD	R0, R1
-        MOV	R1, R0
-        MOV	R0, -4.(R5)
-        MOV	-4.(R5), R0
+        JSR	PC, RTCLS
+        MOV	#2., R0
         MOV	R0, -(SP)
-        MOV	#66., R0
-        MOV	(SP)+, R1
-        CMP	R1, R0
-        BGE	L0010
-        JMP	L0008
-L0010:
-        SUB	#66., -4.(R5)
-        MOV	-4.(R5), R0
-L0008:
-        INC	-8.(R5)
-        MOV	-8.(R5), R0
-        JMP	L0002
-L0003:
+        MOV	#2., R0
+        MOV	R0, -(SP)
+        JSR	PC, RTGOTO
+        ADD	#4., SP
+        MOV	#SL000, R0
+        MOV	R0, -(SP)
+        JSR	PC, RTPSTR
+        ADD	#2., SP
+        MOV	#4., R0
+        MOV	R0, -(SP)
+        MOV	#3., R0
+        MOV	R0, -(SP)
+        JSR	PC, RTGOTO
+        ADD	#4., SP
+        MOV	#SL001, R0
+        MOV	R0, -(SP)
+        JSR	PC, RTPSTR
+        ADD	#2., SP
+        MOV	#6., R0
+        MOV	R0, -(SP)
+        MOV	#4., R0
+        MOV	R0, -(SP)
+        JSR	PC, RTGOTO
+        ADD	#4., SP
+        MOV	#SL002, R0
+        MOV	R0, -(SP)
+        JSR	PC, RTPSTR
+        ADD	#2., SP
+        MOV	#8., R0
+        MOV	R0, -(SP)
+        MOV	#5., R0
+        MOV	R0, -(SP)
+        JSR	PC, RTGOTO
+        ADD	#4., SP
+        MOV	#SL003, R0
+        MOV	R0, -(SP)
+        JSR	PC, RTPSTR
+        ADD	#2., SP
+        MOV	#1500., R0
+        MOV	R0, -(SP)
+        JSR	PC, RTPNUM
+        ADD	#2., SP
+        MOV	#SL004, R0
+        MOV	R0, -(SP)
+        JSR	PC, RTPSTR
+        ADD	#2., SP
+        MOV	#7., R0
+        MOV	R0, -(SP)
+        JSR	PC, RTPNUM
+        ADD	#2., SP
+        MOV	#10., R0
+        MOV	R0, -(SP)
+        MOV	#6., R0
+        MOV	R0, -(SP)
+        JSR	PC, RTGOTO
+        ADD	#4., SP
+        MOV	#SL005, R0
+        MOV	R0, -(SP)
+        JSR	PC, RTPSTR
+        ADD	#2., SP
+        JSR	PC, RTWKEY
         CLR	R0
         MOV	R5, SP
         MOV	(SP)+, R5
@@ -1735,5 +1482,32 @@ L0003:
         JSR	PC, VSREST
         .Exit
 
+        .PSECT	DATA, RW, D
+SL000:
+        .BYTE	240.,210.,201.,215.,197.,212.,44.,32.
+        .BYTE	205.,201.,210.,33.,0.
+        .EVEN
+SL001:
+        .BYTE	226.,207.,204.,216.,219.,201.,197.,58.
+        .BYTE	32.,225.,226.,247.,231.,228.,229.,32.
+        .BYTE	246.,250.,233.,234.,235.,236.,0.
+        .EVEN
+SL002:
+        .BYTE	237.,193.,204.,217.,197.,58.,32.,193.
+        .BYTE	194.,215.,199.,196.,197.,32.,214.,218.
+        .BYTE	201.,202.,203.,204.,0.
+        .EVEN
+SL003:
+        .BYTE	243.,222.,197.,212.,58.,32.,0.
+        .EVEN
+SL004:
+        .BYTE	32.,32.,245.,210.,207.,215.,197.,206.
+        .BYTE	216.,58.,32.,0.
+        .EVEN
+SL005:
+        .BYTE	233.,231.,242.,225.,32.,239.,235.,239.
+        .BYTE	238.,254.,229.,238.,225.,0.
+        .EVEN
+        .PSECT	CODE, RO, I
 
         .END	MAIN

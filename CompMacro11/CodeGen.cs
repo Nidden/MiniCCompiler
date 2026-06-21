@@ -101,6 +101,20 @@ namespace CompMacro11
 
         private string L() => $"L{_labelCnt++:D4}";
 
+        // Перекодировка кириллицы UTF-8 → коды знакогенератора УКНЦ (КОИ-8).
+        // Раскладка ПЗУ УКНЦ (выверено на железе): СТРОЧНЫЕ 192-223, ЗАГЛАВНЫЕ 224-255.
+        private const string Koi8Lower = "юабцдефгхийклмнопярстужвьызшэщчъ"; // 192..223
+        private const string Koi8Upper = "ЮАБЦДЕФГХИЙКЛМНОПЯРСТУЖВЬЫЗШЭЩЧЪ"; // 224..255
+        private int Koi8Uknc(char ch)
+        {
+            int idx = Koi8Lower.IndexOf(ch);
+            if (idx >= 0) return 192 + idx;
+            idx = Koi8Upper.IndexOf(ch);
+            if (idx >= 0) return 224 + idx;
+            return 63; // неизвестный символ (в т.ч. Ё/ё — нет в знакогенераторе) → '?'
+        }
+
+
         // Macro-11: метка ≤ 6 символов [A-Z0-9]
         private string ToAsm(string name, int maxLen = 6)
         {
@@ -300,7 +314,8 @@ namespace CompMacro11
                         if (ch == '\r') bytes.Add(13);
                         else if (ch == '\n') bytes.Add(10);
                         else if (ch == '\t') bytes.Add(9);
-                        else bytes.Add((int)ch & 0x7F);
+                        else if (ch < 128) bytes.Add((int)ch & 0x7F);  // ASCII
+                        else bytes.Add(Koi8Uknc(ch));                  // кириллица → КОИ-8
                     }
                     bytes.Add(0); // null-terminator
                     for (int bi = 0; bi < bytes.Count; bi += 8)
@@ -2541,9 +2556,9 @@ namespace CompMacro11
 
                 case "gotoxy":
                     if (c.Args.Count != 2)
-                        throw new Exception($"Строка {c.Line}: gotoxy(col,row) требует 2 аргумента");
-                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)");   // row
-                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)");   // col
+                        throw new Exception($"Строка {c.Line}: gotoxy(x,y) требует 2 аргумента");
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)");   // y (строка)
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)");   // x (колонка)
                     EI("JSR", "PC, RTGOTO");
                     EI("ADD", "#4., SP");
                     break;

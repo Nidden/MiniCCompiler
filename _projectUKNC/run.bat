@@ -7,5 +7,5 @@ del "a.*"
 cd ../
 rt11dsk d "uknc.dsk" "a.sav"
 rt11dsk a "uknc.dsk" "a.sav"
-del "a.sav"
+rem del "a.sav"
 UKNCBTL.exe

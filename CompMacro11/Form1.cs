@@ -474,7 +474,7 @@ namespace CompMacro11
             HelpT(r, "    printf(\"c=%c\\n\", 65);  // выведет c=A\n", Color.FromArgb(181, 206, 168));
 
             HelpT(r, "\n═══ ПОЗИЦИЯ И ЦВЕТ ТЕКСТА ═══════════════════════════════\n", Color.FromArgb(86, 156, 214));
-            HelpFn(r, "gotoxy", "col, row", "курсор в (колонка, строка). Сначала X, потом Y");
+            HelpFn(r, "gotoxy", "x, y", "курсор в колонку x, строку y. Отсчёт с 0");
             HelpFn(r, "setTextColor", "c", "цвет текста 0..7 (см. таблицу ниже)");
             HelpT(r, "\n  Цвета setTextColor (выверено на эмуляторе):\n", Color.FromArgb(150, 150, 150));
             HelpT(r, "    0 = чёрный    4 = зелёный\n", Color.FromArgb(150, 150, 150));
