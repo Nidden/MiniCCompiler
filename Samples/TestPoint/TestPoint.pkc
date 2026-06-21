@@ -1,0 +1,16 @@
+﻿{
+  "Name": "ТестPoint",
+  "Version": "1.0",
+  "Created": "2026-05-02 01:33:36",
+  "Modified": "2026-05-02 01:39:18",
+  "MainFile": "main.mc",
+  "CursorLine": 1,
+  "CursorCol": 1,
+  "Settings": {
+    "TargetPlatform": "UKNC",
+    "ScreenMode": 1,
+    "OptimizeLabels": true
+  },
+  "Files": ["main.mc"],
+  "Sprites": []
+}
