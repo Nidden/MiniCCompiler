@@ -1,6 +1,15 @@
-.vs/ 
-bin/ 
-obj/ 
-*.user 
-*.suo 
-Projects/ 
+# Visual Studio
+.vs/
+bin/
+obj/
+*.user
+*.suo
+Projects/
+
+# Артефакты компиляции Mini-C → УКНЦ
+# (генерируются при каждой компиляции, не нужны в репозитории)
+_projectUKNC/A.MAC
+_projectUKNC/A.SAV
+
+# Автосохранение спрайтов (генерируется редактором)
+sprites_autosave.spr
