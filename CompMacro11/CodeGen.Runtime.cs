@@ -106,6 +106,7 @@ namespace CompMacro11
             E("        .BYTE\t33,240,67");
             E("        .BYTE\t33,241,60");
             E("        .BYTE\t33,242,60");
+            E("        .BYTE\t33,247,60");   // погасить курсор (цвет = фон)
             E("        .BYTE\t14,0");
             E("        .EVEN");
             E("");
@@ -116,6 +117,7 @@ namespace CompMacro11
             E("        .BYTE\t33,240,63");   // цвет символа
             E("        .BYTE\t33,241,60");   // цвет знакоместа 0
             E("        .BYTE\t33,242,60");   // цвет фона 0
+            E("        .BYTE\t33,247,60");   // погасить курсор
             E("        .BYTE\t14,0");        // clear screen
             E("        .EVEN");
             E("");
@@ -126,6 +128,7 @@ namespace CompMacro11
             E("        .BYTE\t33,240,67");
             E("        .BYTE\t33,241,61");
             E("        .BYTE\t33,242,61");
+            E("        .BYTE\t33,247,61");   // цвет курсора = фон (синий)
             E("        .BYTE\t14,0");
             E("        .EVEN");
             E("");
@@ -136,6 +139,7 @@ namespace CompMacro11
             E("        .BYTE\t33,240,67");
             E("        .BYTE\t33,241,61");
             E("        .BYTE\t33,242,61");
+            E("        .BYTE\t33,247,61");   // цвет курсора = фон (синий)
             E("        .BYTE\t14,0");
             E("        .EVEN");
             E("");
@@ -212,7 +216,7 @@ namespace CompMacro11
             E("        ADD	R0, R5");
             E("        DEC	R3");
             E("        BNE	RTSP1");
-            E("        BR	RTSPX");
+            E("        JMP	RTSPX");          // JMP вместо BR — надёжнее по дистанции
             // ── БУФЕРНЫЙ ПУТЬ: x не кратен 8 ─────────────────────
             // R1=s, R0=x, R2=words, R3=h, R4=ptr, R5=начало строки
             E("RTSPS:");
@@ -270,8 +274,12 @@ namespace CompMacro11
             E("        DEC	R1");
             E("        BEQ	RTSPE1");
             E("        JMP	RTSPS1");
+            // ── Вывод w+1 слов целиком (рабочая версия) ──────────
+            // R1=счётчик, R0=#SPBUF, R5=адрес VRAM. Крайние слова дают
+            // чёрную окантовку (нули в неиспользуемых битах) — известное
+            // поведение, спрайт рисуется корректно.
             E("RTSPE1: MOV	R2, R1");
-            E("        INC	R1");
+            E("        INC	R1");            // R1 = w+1
             E("        MOV	#SPBUF, R0");
             E("RTSPO1: MOV	R5, @#176640");
             E("        MOV	(R0)+, @#176642");
@@ -604,10 +612,24 @@ namespace CompMacro11
             E("        MOV	(SP)+, R5");
             E("        RTS	PC");
             E("");
-            // ── RTPNL: перевод строки ────────────────────────────
-            E("; RTPNL — print_nl(): вывод CR (13) + пауза для скроллинга.");
-            E("RTPNL:");
+            // ── RTCCOL: setCursorColor(c) через ESC 247 ──────────
+            E("; RTCCOL — setCursorColor(c): ESC 0247 (c+'0'). Цвет курсора 0..7.");
+            E("; 4.(R5)=цвет (цифра передаётся как c+48)");
+            E("RTCCOL:");
+            E("        MOV	R5, -(SP)");
+            E("        MOV	SP, R5");
             E("        MOV	R0, -(SP)");
+            E("        MOV	#27., R0");      // ESC
+            E("        JSR	PC, RTPUTC");
+            E("        MOV	#167., R0");     // 0247 окт = 167 дес — цвет курсора
+            E("        JSR	PC, RTPUTC");
+            E("        MOV	4.(R5), R0");
+            E("        ADD	#48., R0");      // c -> ASCII-цифра
+            E("        JSR	PC, RTPUTC");
+            E("        MOV	(SP)+, R0");
+            E("        MOV	(SP)+, R5");
+            E("        RTS	PC");
+            E("");
             E("        MOV	R1, -(SP)");
             E("        MOV	#13., R0");      // CR
             E("RTPNL1: TSTB	@#177564");

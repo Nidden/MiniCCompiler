@@ -122,7 +122,9 @@ namespace CompMacro11
         private string _emulatorPath = "";   // путь к UKNCBTL.exe
         private McProject _project = null;   // текущий проект
         private string _projectSpritesPath = null;
+        private int _lastSpriteBytes = 0;   // размер подключённых спрайтов (байт УКНЦ)
         private Button _btnSave = null;
+        private CheckBox _chkOptimize = null;   // tree-shaking рантайма
 
         public Form1()
         {
@@ -165,6 +167,20 @@ namespace CompMacro11
 
             var btnRun = MakeBtn("▶ Эмулятор", 105, Color.FromArgb(30, 90, 50), 456);
             btnRun.Click += (_, __) => RunInEmulator();
+
+            _chkOptimize = new CheckBox
+            {
+                Text = "Оптимизация",
+                Checked = true,
+                ForeColor = C_GRAY,
+                BackColor = Color.Transparent,
+                AutoSize = false,
+                Width = 115,
+                Height = 28,
+                Location = new Point(333, 9),
+                Font = F_UI,
+                FlatStyle = FlatStyle.Flat
+            };
 
             var btnHelp = MakeBtn("?", 32, Color.FromArgb(50, 80, 120), 569);
             btnHelp.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
@@ -261,7 +277,7 @@ namespace CompMacro11
                 menu.Show(btnProject, new System.Drawing.Point(0, btnProject.Height));
             };
 
-            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, btnRun, btnHelp, btnSprites, btnProject, _status });
+            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, _chkOptimize, btnRun, btnHelp, btnSprites, btnProject, _status });
 
             // ── Заголовки ─────────────────────────────────────────
             var hdr = new Panel
@@ -476,6 +492,7 @@ namespace CompMacro11
             HelpT(r, "\n═══ ПОЗИЦИЯ И ЦВЕТ ТЕКСТА ═══════════════════════════════\n", Color.FromArgb(86, 156, 214));
             HelpFn(r, "gotoxy", "x, y", "курсор в колонку x, строку y. Отсчёт с 0");
             HelpFn(r, "setTextColor", "c", "цвет текста 0..7 (см. таблицу ниже)");
+            HelpFn(r, "setCursorColor", "c", "цвет курсора 0..7 (= фон, чтобы скрыть)");
             HelpT(r, "\n  Цвета setTextColor (выверено на эмуляторе):\n", Color.FromArgb(150, 150, 150));
             HelpT(r, "    0 = чёрный    4 = зелёный\n", Color.FromArgb(150, 150, 150));
             HelpT(r, "    1 = синий     5 = cyan (голубой)\n", Color.FromArgb(150, 150, 150));
@@ -936,7 +953,9 @@ namespace CompMacro11
 
                 var tokens = new Lexer(fullSrc).Tokenize();
                 var ast = new Parser(tokens).ParseProgram();
-                string asm = new CodeGen().Generate(ast);
+                var cg = new CodeGen();
+                cg.OptimizeRuntime = _chkOptimize == null || _chkOptimize.Checked;
+                string asm = cg.Generate(ast);
 
                 _out.ForeColor = C_TEXT;
                 _out.Text = asm;
@@ -1028,7 +1047,10 @@ namespace CompMacro11
                 var savTime = System.IO.File.GetLastWriteTime(savPath);
                 long savSize = new System.IO.FileInfo(savPath).Length;
                 if (savTime >= started.AddSeconds(-2))
-                    SetStatus($"✔  A.SAV собран  •  {savSize} байт  •  {savPath}", false);
+                {
+                    string spr = _lastSpriteBytes > 0 ? $"  •  спрайты: {_lastSpriteBytes} байт" : "";
+                    SetStatus($"✔  A.SAV собран  •  {savSize} байт{spr}  •  {savPath}", false);
+                }
                 else
                     SetStatus($"⚠  A.SAV НЕ обновился (старый от {savTime:HH:mm:ss})  •  {savPath}", true);
             }
@@ -1131,6 +1153,7 @@ namespace CompMacro11
             var mentioned = new System.Collections.Generic.HashSet<string>();
             foreach (Match m in Regex.Matches(src, @"//\s*sprite:\s*(\w+)"))
                 mentioned.Add(m.Groups[1].Value);
+            _lastSpriteBytes = 0;
             if (mentioned.Count == 0) return "";
 
             List<Sprite> sprites = null;
@@ -1149,11 +1172,15 @@ namespace CompMacro11
             if (missing.Count > 0)
                 SetStatus($"⚠  Спрайты не найдены: {string.Join(", ", missing)}", true);
 
-            // Собрать объявления спрайтов
+            // Собрать объявления спрайтов + посчитать их размер в памяти УКНЦ
             var sb = new System.Text.StringBuilder();
+            _lastSpriteBytes = 0;
             foreach (var s in sprites)
                 if (mentioned.Contains(s.Name))
+                {
                     sb.AppendLine(s.ExportC());
+                    _lastSpriteBytes += s.Words * s.Height * 2;  // слов × 2 байта
+                }
             return sb.ToString();
         }
 

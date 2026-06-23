@@ -89,7 +89,7 @@ namespace CompMacro11
             "cls", "init", "pause", "print_char", "print_nl", "print_int", "print_str", "printf",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "rect", "fill_rect", "fill_dither", "fill_gradient", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor",
+            "point", "line", "rect", "fill_rect", "fill_dither", "fill_gradient", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setCursorColor",
             "vsync", "sin256", "cos256", "abs", "min", "max", "clamp"
         };
 
@@ -149,6 +149,169 @@ namespace CompMacro11
         private void EC(string c) { } // комментарии отключены — кириллица ломает Macro-11
         private void EI(string op, string a = "") =>
             _out.AppendLine("        " + (a == "" ? op : op + "\t" + a));
+
+        // ── Tree-shaking рантайма ────────────────────────────────
+        public bool OptimizeRuntime = true;
+
+        // Базовые блоки рантайма — НИКОГДА не удаляются (макросы, инициализация,
+        // общие данные). Совпадение по метке в начале блока.
+        private static readonly HashSet<string> _rtAlwaysKeep = new HashSet<string>
+        {
+            "RTSTTBL",   // инициализация таблицы строк экрана — нужна почти всегда
+            "VSREST",    // восстановление вектора 100 — main ВСЕГДА вызывает при выходе
+        };
+
+        // Отфильтровать рантайм: оставить только блоки, достижимые из вызовов
+        // в пользовательском коде, по транзитивному графу JSR/JMP RTxxx.
+        // Базовые блоки (макросы, данные без метки) и _rtAlwaysKeep — сохраняются.
+        private string FilterRuntime(string runtimeAsm, string userCode)
+        {
+            var lines = runtimeAsm.Split('\n');
+
+            // 1. Разбить рантайм на блоки. Блок начинается со строки-метки
+            //    "RTxxx:" в начале (с двоеточием). Преамбула (макросы, до первой
+            //    RT-метки) — базовый блок, всегда сохраняется.
+            //    Секция .PSECT DATA..CODE (общие данные DSPST/SINTAB/SPBUF и т.п.)
+            //    помечается особым именем "__data__" и сохраняется ЦЕЛИКОМ —
+            //    эти данные нужны выжившим функциям, их нельзя выкидывать.
+            var blockNames = new System.Collections.Generic.List<string>();
+            var blockLines = new System.Collections.Generic.List<System.Collections.Generic.List<string>>();
+            string curName = "__preamble__";
+            var curLines = new System.Collections.Generic.List<string>();
+            var labelRx = new System.Text.RegularExpressions.Regex(@"^([A-Z][A-Z0-9]*[0-9A-Z]):");
+            bool inData = false;
+            foreach (var raw in lines)
+            {
+                // Переключение в секцию данных рантайма — всё до .PSECT CODE сохраняем
+                if (raw.Contains(".PSECT") && raw.Contains("DATA"))
+                {
+                    blockNames.Add(curName); blockLines.Add(curLines);
+                    curName = "__data__";
+                    curLines = new System.Collections.Generic.List<string>();
+                    inData = true;
+                    curLines.Add(raw);
+                    continue;
+                }
+                if (inData && raw.Contains(".PSECT") && raw.Contains("CODE"))
+                {
+                    blockNames.Add(curName); blockLines.Add(curLines);
+                    curName = "__preamble__";   // снова обычный режим
+                    curLines = new System.Collections.Generic.List<string>();
+                    inData = false;
+                    curLines.Add(raw);
+                    continue;
+                }
+                if (inData) { curLines.Add(raw); continue; }
+
+                var m = labelRx.Match(raw);
+                if (m.Success)
+                {
+                    blockNames.Add(curName); blockLines.Add(curLines);
+                    curName = m.Groups[1].Value;
+                    curLines = new System.Collections.Generic.List<string>();
+                }
+                curLines.Add(raw);
+            }
+            blockNames.Add(curName); blockLines.Add(curLines);
+
+            // 2. Для каждого блока — какие RTxxx он вызывает (JSR/JMP/BR PC,RTxxx
+            //    или просто упоминание RTxxx как операнда). Строим граф.
+            var callRx = new System.Text.RegularExpressions.Regex(@"\b([A-Z][A-Z0-9]*[0-9A-Z])\b");
+            var deps = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.HashSet<string>>();
+            for (int i = 0; i < blockNames.Count; i++)
+            {
+                var set = new System.Collections.Generic.HashSet<string>();
+                for (int li = 0; li < blockLines[i].Count; li++)
+                {
+                    // пропускаем саму строку-метку (первую), чтобы имя блока не считалось вызовом себя
+                    string ln = blockLines[i][li];
+                    if (li == 0 && labelRx.IsMatch(ln)) ln = labelRx.Replace(ln, "");
+                    // отрезаем комментарий (всё после ';') — иначе имена функций
+                    // в комментариях ложно считаются вызовами
+                    int sc = ln.IndexOf(';');
+                    if (sc >= 0) ln = ln.Substring(0, sc);
+                    foreach (System.Text.RegularExpressions.Match cm in callRx.Matches(ln))
+                        if (cm.Value != blockNames[i]) set.Add(cm.Value);
+                }
+                deps[blockNames[i]] = set;
+            }
+
+            // 2b. Fallthrough: если блок не заканчивается безусловным переходом
+            //     (RTS/JMP/BR/.Exit), исполнение «проваливается» в следующий блок —
+            //     добавляем зависимость текущий→следующий, чтобы не оторвать его.
+            var endRx = new System.Text.RegularExpressions.Regex(@"\b(RTS|JMP|BR|\.Exit|\.END)\b");
+            for (int i = 0; i < blockNames.Count - 1; i++)
+            {
+                // последняя непустая, некомментарная строка блока
+                string last = null;
+                foreach (var ln in blockLines[i])
+                {
+                    string code = ln;
+                    int sc = code.IndexOf(';');
+                    if (sc >= 0) code = code.Substring(0, sc);
+                    if (code.Trim().Length > 0) last = code;
+                }
+                bool ends = last != null && endRx.IsMatch(last);
+                if (!ends && deps.ContainsKey(blockNames[i]))
+                    deps[blockNames[i]].Add(blockNames[i + 1]);
+            }
+
+            // 3. Корни: RT-функции, вызываемые из пользовательского кода,
+            //    плюс всегда-сохраняемые базовые.
+            var reachable = new System.Collections.Generic.HashSet<string>();
+            var queue = new System.Collections.Generic.Queue<string>();
+            void AddRoot(string n) { if (deps.ContainsKey(n) && reachable.Add(n)) queue.Enqueue(n); }
+
+            // Корни из пользовательского кода (без комментариев)
+            var ucLines = userCode.Split('\n');
+            foreach (var ucRaw in ucLines)
+            {
+                string uc = ucRaw;
+                int sc = uc.IndexOf(';');
+                if (sc >= 0) uc = uc.Substring(0, sc);
+                foreach (System.Text.RegularExpressions.Match cm in callRx.Matches(uc))
+                    AddRoot(cm.Value);
+            }
+            foreach (var n in _rtAlwaysKeep) AddRoot(n);
+
+            // 4. Транзитивное замыкание — цепочки вызовов.
+            while (queue.Count > 0)
+            {
+                string n = queue.Dequeue();
+                foreach (var dep in deps[n])
+                    if (deps.ContainsKey(dep) && reachable.Add(dep)) queue.Enqueue(dep);
+            }
+
+            // 5. Склеить: преамбулу + данные + достижимые блоки (в исходном порядке).
+            //    Блоки-данные (метка + только .BLKW/.WORD/.BYTE/.EVEN) сохраняются
+            //    всегда — это таблицы (DSPST, SINTAB и т.п.), на них ссылаются
+            //    функции по имени, и отсекать их по графу вызовов нельзя.
+            var dataDirRx = new System.Text.RegularExpressions.Regex(@"\.(BLKW|WORD|BYTE|EVEN|ASCII|ASCIZ)\b");
+            var codeRx = new System.Text.RegularExpressions.Regex(@"\b(MOV|ADD|SUB|JSR|JMP|RTS|CLR|TST|CMP|BIC|BIS|ASL|ASR|INC|DEC|BR|BEQ|BNE|MUL|DIV)\b");
+            bool IsDataBlock(int idx)
+            {
+                bool hasData = false;
+                foreach (var ln in blockLines[idx])
+                {
+                    string code = ln;
+                    int sc = code.IndexOf(';');
+                    if (sc >= 0) code = code.Substring(0, sc);
+                    if (codeRx.IsMatch(code)) return false;   // есть инструкция → не данные
+                    if (dataDirRx.IsMatch(code)) hasData = true;
+                }
+                return hasData;
+            }
+
+            var sb = new StringBuilder();
+            for (int i = 0; i < blockNames.Count; i++)
+            {
+                if (blockNames[i] == "__preamble__" || blockNames[i] == "__data__"
+                    || reachable.Contains(blockNames[i]) || IsDataBlock(i))
+                    foreach (var ln in blockLines[i]) sb.Append(ln).Append('\n');
+            }
+            return sb.ToString();
+        }
+
 
         private string FP(int off)
         {
@@ -225,11 +388,30 @@ namespace CompMacro11
             E("        .MCall\t.Exit, .TTYIN, .TTINR");
             E("        .PSECT\tCODE, RO, I");
             E("");
-            EmitRuntime();
-            E("");
 
-            // Проход 2: код пользователя
+            // Рантайм эмитим в отдельный буфер, чтобы потом отфильтровать
+            // неиспользуемые функции (tree-shaking). Подменяем _out на время.
+            var mainBuf = _out;
+            _out = new StringBuilder();
+            EmitRuntime();
+            string runtimeAsm = _out.ToString();
+            _out = mainBuf;
+
+            // Код пользователя — в отдельный буфер (нужен для анализа вызовов RT)
+            var userBuf = new StringBuilder();
+            _out = userBuf;
             foreach (var f in prog.Functions) GenFunc(f);
+            string userCode = _out.ToString();
+            _out = mainBuf;
+
+            // Вставляем рантайм (отфильтрованный, если включена оптимизация),
+            // затем пользовательский код. userCode анализируется на вызовы RT.
+            if (OptimizeRuntime)
+                E(FilterRuntime(runtimeAsm, userCode));
+            else
+                E(runtimeAsm);
+            E("");
+            E(userCode);
 
             // Глобальные переменные и массивы → DATA секция
             if (prog.Globals.Count > 0)
@@ -2568,6 +2750,14 @@ namespace CompMacro11
                         throw new Exception($"Строка {c.Line}: setTextColor(c) требует 1 аргумент");
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)");
                     EI("JSR", "PC, RTSCOL");
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "setCursorColor":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: setCursorColor(c) требует 1 аргумент (0..7)");
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTCCOL");
                     EI("ADD", "#2., SP");
                     break;
 
