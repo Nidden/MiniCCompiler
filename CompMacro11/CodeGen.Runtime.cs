@@ -218,7 +218,10 @@ namespace CompMacro11
             E("        BNE	RTSP1");
             E("        JMP	RTSPX");          // JMP вместо BR — надёжнее по дистанции
             // ── БУФЕРНЫЙ ПУТЬ: x не кратен 8 ─────────────────────
-            // R1=s, R0=x, R2=words, R3=h, R4=ptr, R5=начало строки
+            // R1=s, R0=x, R2=words, R3=h, R4=ptr, R5=начало строки.
+            // Строка копируется в SPBUF, сдвигается на s бит через ROLB,
+            // выводится w+1 слов. Крайние слова дают чёрную окантовку —
+            // известное поведение (некратный x), но спрайт рисуется.
             E("RTSPS:");
             E("        ASR	R0"); E("        ASR	R0"); E("        ASR	R0");
             E("        ADD	R0, R5");
@@ -237,8 +240,6 @@ namespace CompMacro11
             E("        CLR	(R0)");
             E("        MOV	4.(SP), R1");    // R1 = s
             E("        BEQ	RTSPE1");
-            // RORB справа налево: carry из бит0 правого байта → бит7 левого
-            // CLC перед каждым проходом
             E("RTSPS1: CLC");
             E("        ROLB	SPBUF+1.");
             E("        ROLB	SPBUF+3.");
@@ -274,10 +275,6 @@ namespace CompMacro11
             E("        DEC	R1");
             E("        BEQ	RTSPE1");
             E("        JMP	RTSPS1");
-            // ── Вывод w+1 слов целиком (рабочая версия) ──────────
-            // R1=счётчик, R0=#SPBUF, R5=адрес VRAM. Крайние слова дают
-            // чёрную окантовку (нули в неиспользуемых битах) — известное
-            // поведение, спрайт рисуется корректно.
             E("RTSPE1: MOV	R2, R1");
             E("        INC	R1");            // R1 = w+1
             E("        MOV	#SPBUF, R0");
@@ -630,6 +627,8 @@ namespace CompMacro11
             E("        MOV	(SP)+, R5");
             E("        RTS	PC");
             E("");
+            // ── RTPNL — print_nl(): CR + LF + пауза для скроллинга ──
+            E("RTPNL:");
             E("        MOV	R1, -(SP)");
             E("        MOV	#13., R0");      // CR
             E("RTPNL1: TSTB	@#177564");
@@ -1230,203 +1229,82 @@ namespace CompMacro11
             E("        MOV\t(SP)+, R0");
             E("        MOV\t(SP)+, R5");
             E("        RTS\tPC");
-            // ── RTGRAD: градиентная заливка ───────────────────────
-            E("; RTGRAD — fill_gradient(x,y,w,h,fg,bg,dir)");
-            E(";   4.(R5)=x 6.(R5)=y 8.(R5)=w 10.(R5)=h");
-            E(";   12.(R5)=fg 14.(R5)=bg 16.(R5)=dir");
-            E("; dir: 0=лево→право 1=право→лево 2=верх→низ 3=низ→верх");
-            E("; Точка входа — выбор подпрограммы по dir");
-            E("; Подпрограммы: RGGRLR RGGRRL RGGRTB RGGRBT");
-            E("; Каждая пишет прямо в VRAM через RTDITH (8 вызовов)");
-            E("RTGRAD:");
-            E("        MOV\tR5, -(SP)");
-            E("        MOV\tSP, R5");
-            E("        MOV\tR0, -(SP)");
-            E("        MOV\tR1, -(SP)");
-            E("        MOV\tR2, -(SP)");
-            E("        MOV\tR3, -(SP)");
-            E("        MOV\tR4, -(SP)");
-            E("        MOV\t16.(R5), R0");           // dir
-            E("        BEQ\tRGGRLR");                // 0 = лево→право
-            E("        CMP\tR0, #1.");
-            E("        BEQ\tRGGRRL");                // 1 = право→лево
-            E("        CMP\tR0, #2.");
-            E("        BEQ\tRGGRTB");                // 2 = верх→низ
-            E("        BR\tRGGRBT");                 // 3 = низ→верх
 
-            // ── Общий эпилог ─────────────────────────────────────
-            E("RGRADEX:");
-            E("        MOV\t(SP)+, R4");
-            E("        MOV\t(SP)+, R3");
-            E("        MOV\t(SP)+, R2");
-            E("        MOV\t(SP)+, R1");
-            E("        MOV\t(SP)+, R0");
-            E("        MOV\t(SP)+, R5");
-            E("        RTS\tPC");
+
+            // ── RTDITH: дизер-заливка прямоугольника ──────────────
+            // RTDITH(x, y, w, h, pattern, fg, bg) — 7 аргументов.
+            //   4.(R5)=x 6.(R5)=y 8.(R5)=w 10.(R5)=h
+            //   12.(R5)=pattern(0..7) 14.(R5)=fg 16.(R5)=bg
+            // Для каждого пикселя: бит узора DTAB[pat*8+(row&7)] в позиции
+            // (col&7) выбирает fg или bg. Ставим через RTPPNT (выверен).
+            // R2=col, R3=row держатся через RTPPNT (он сохраняет R0-R3,R5).
+            E("RTDITH:");
+            E("        MOV	R5, -(SP)");
+            E("        MOV	SP, R5");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	R1, -(SP)");
+            E("        MOV	R2, -(SP)");
+            E("        MOV	R3, -(SP)");
+            E("        MOV	R4, -(SP)");
+            E("        CLR	R3");            // row = 0
+            E("RTDITY:");
+            E("        CMP	R3, 10.(R5)");   // row < h ?
+            E("        BGE	RTDITE");
+            E("        CLR	R2");            // col = 0
+            E("RTDITX:");
+            E("        CMP	R2, 8.(R5)");    // col < w ?
+            E("        BGE	RTDITNY");
+            // Узор: word = DTAB[pattern*8 + (row&7)]
+            E("        MOV	12.(R5), R0");   // pattern
+            E("        ASL	R0"); E("        ASL	R0"); E("        ASL	R0");  // *8
+            E("        MOV	R3, R1");
+            E("        BIC	#177770, R1");   // row & 7
+            E("        ADD	R1, R0");        // index = pattern*8 + (row&7)
+            E("        ASL	R0");           // *2 (слова)
+            E("        MOV	DTAB(R0), R0");  // R0 = слово узора
+            // бит (col&7): сдвинуть R0 вправо на (col&7), взять бит0
+            E("        MOV	R2, R1");
+            E("        BIC	#177770, R1");   // R1 = col & 7
+            E("        TST	R1");
+            E("        BEQ	RTDITB");
+            E("RTDITSH: ASR	R0");
+            E("        DEC	R1");
+            E("        BNE	RTDITSH");
+            E("RTDITB:");
+            E("        BIC	#177776, R0");   // R0 = бит узора (0/1)
+            // выбрать цвет: бит=1 → fg(14.(R5)), бит=0 → bg(16.(R5))
+            E("        TST	R0");
+            E("        BEQ	RTDITBG");
+            E("        MOV	14.(R5), R0");   // fg
+            E("        BR	RTDITPX");
+            E("RTDITBG:");
+            E("        MOV	16.(R5), R0");   // bg
+            E("RTDITPX:");
+            // RTPPNT(x+col, y+row, color)
+            E("        MOV	R0, -(SP)");     // color
+            E("        MOV	6.(R5), R0");
+            E("        ADD	R3, R0");        // y + row
+            E("        MOV	R0, -(SP)");
+            E("        MOV	4.(R5), R0");
+            E("        ADD	R2, R0");        // x + col
+            E("        MOV	R0, -(SP)");
+            E("        JSR	PC, RTPPNT");
+            E("        ADD	#6, SP");
+            E("        INC	R2");            // col++
+            E("        BR	RTDITX");
+            E("RTDITNY:");
+            E("        INC	R3");            // row++
+            E("        BR	RTDITY");
+            E("RTDITE:");
+            E("        MOV	(SP)+, R4");
+            E("        MOV	(SP)+, R3");
+            E("        MOV	(SP)+, R2");
+            E("        MOV	(SP)+, R1");
+            E("        MOV	(SP)+, R0");
+            E("        MOV	(SP)+, R5");
+            E("        RTS	PC");
             E("");
 
-            // ── Вспомогательный макрос: вызов RTDITH ─────────────
-            // Вызывает RTDITH(cx, cy, pw, ph, pat, fg, bg)
-            // Аргументы: R0=cx R1=cy R2=pw R3=ph R4=pat
-            // fg=12.(R5) bg=14.(R5) — из фрейма родителя
-            E("; RGCALL — вызов RTDITH с R0=x R1=y R2=w R3=h R4=pat");
-            E("; fg=12.(R5) bg=14.(R5)");
-            E("RGCALL:");
-            E("        MOV\t14.(R5), -(SP)");        // bg
-            E("        MOV\t12.(R5), -(SP)");        // fg
-            E("        MOV\tR4, -(SP)");             // pat
-            E("        MOV\tR3, -(SP)");             // h
-            E("        MOV\tR2, -(SP)");             // w
-            E("        MOV\tR1, -(SP)");             // y
-            E("        MOV\tR0, -(SP)");             // x
-            E("        JSR\tPC, RTDITH");
-            E("        ADD\t#14., SP");
-            E("        RTS\tPC");
-            E("");
-
-            // ── RGGRLR: лево→право ────────────────────────────────
-            // 8 вертикальных полос шириной ~w/8
-            // pat=0 слева, pat=7 справа
-            // base=w>>3, rem=w&7, Брезенхэм для остатка
-            E("RGGRLR:");
-            E("        MOV\t8.(R5), R2");            // w
-            E("        MOV\tR2, R3");
-            E("        ASR\tR3"); E("        ASR\tR3"); E("        ASR\tR3"); // R3=base=w>>3
-            E("        BIC\t#177770, R2");           // R2=rem=w&7
-            // Локали на стеке: cx base rem accum
-            E("        MOV\t4.(R5), -(SP)");         // SP+6=cx=x
-            E("        MOV\tR3, -(SP)");             // SP+4=base
-            E("        MOV\tR2, -(SP)");             // SP+2=rem
-            E("        CLR\t-(SP)");                 // SP+0=accum=0
-            E("        CLR\tR4");                    // R4=pat=0
-            E("        MOV\t#10., R1");              // R1=8 (счётчик)
-            E("RGLRL:");
-            // pw = base; accum+=rem; if accum>=8: pw++; accum-=8
-            E("        MOV\t4.(SP), R2");            // R2=base=pw
-            E("        ADD\t2.(SP), 0.(SP)");        // accum+=rem
-            E("        CMP\t0.(SP), #10.");
-            E("        BLT\tRGLR1");
-            E("        INC\tR2");
-            E("        SUB\t#10., 0.(SP)");
-            E("RGLR1:");
-            // вызов: cx=6.(SP) y=6.(R5) w=R2 h=10.(R5) pat=R4
-            E("        MOV\t6.(SP), R0");            // cx
-            E("        MOV\t6.(R5), R1");            // y
-            E("        MOV\t10.(R5), R3");           // h
-            E("        JSR\tPC, RGCALL");
-            // cx += pw
-            E("        ADD\tR2, 6.(SP)");
-            E("        INC\tR4");                    // pat++
-            E("        DEC\tR1");                    // счётчик--  (R1 портится RGCALL? нет — RGCALL сохраняет регистры через RTDITH)
-            E("        BNE\tRGLRL");
-            E("        ADD\t#8., SP");               // убрать cx base rem accum
-            E("        BR\tRGRADEX");
-
-            // ── RGGRRL: право→лево ────────────────────────────────
-            // pat=0 справа, pat=7 слева
-            // cx начинается с x+w, идёт влево
-            E("RGGRRL:");
-            E("        MOV\t8.(R5), R2");
-            E("        MOV\tR2, R3");
-            E("        ASR\tR3"); E("        ASR\tR3"); E("        ASR\tR3");
-            E("        BIC\t#177770, R2");
-            // cx = x+w (начнём с правого края, будем вычитать pw)
-            E("        MOV\t4.(R5), R0");
-            E("        ADD\t8.(R5), R0");            // R0=x+w
-            E("        MOV\tR0, -(SP)");             // SP+6=cx=x+w
-            E("        MOV\tR3, -(SP)");
-            E("        MOV\tR2, -(SP)");
-            E("        CLR\t-(SP)");
-            E("        CLR\tR4");
-            E("        MOV\t#10., R1");
-            E("RGRLL:");
-            E("        MOV\t4.(SP), R2");
-            E("        ADD\t2.(SP), 0.(SP)");
-            E("        CMP\t0.(SP), #10.");
-            E("        BLT\tRGRL1");
-            E("        INC\tR2");
-            E("        SUB\t#10., 0.(SP)");
-            E("RGRL1:");
-            // cx -= pw (рисуем справа налево)
-            E("        SUB\tR2, 6.(SP)");
-            E("        MOV\t6.(SP), R0");            // cx (уже вычтено)
-            E("        MOV\t6.(R5), R1");
-            E("        MOV\t10.(R5), R3");
-            E("        JSR\tPC, RGCALL");
-            E("        INC\tR4");
-            E("        DEC\tR1");
-            E("        BNE\tRGRLL");
-            E("        ADD\t#8., SP");
-            E("        BR\tRGRADEX");
-
-            // ── RGGRTB: верх→низ ──────────────────────────────────
-            // 8 горизонтальных полос высотой ~h/8
-            // pat=0 сверху, pat=7 снизу
-            E("RGGRTB:");
-            E("        MOV\t10.(R5), R2");           // h
-            E("        MOV\tR2, R3");
-            E("        ASR\tR3"); E("        ASR\tR3"); E("        ASR\tR3");
-            E("        BIC\t#177770, R2");
-            E("        MOV\t6.(R5), -(SP)");         // SP+6=cy=y
-            E("        MOV\tR3, -(SP)");
-            E("        MOV\tR2, -(SP)");
-            E("        CLR\t-(SP)");
-            E("        CLR\tR4");
-            E("        MOV\t#10., R1");
-            E("RGTBL:");
-            E("        MOV\t4.(SP), R3");            // R3=base=ph
-            E("        ADD\t2.(SP), 0.(SP)");
-            E("        CMP\t0.(SP), #10.");
-            E("        BLT\tRGTB1");
-            E("        INC\tR3");
-            E("        SUB\t#10., 0.(SP)");
-            E("RGTB1:");
-            E("        MOV\t4.(R5), R0");            // x
-            E("        MOV\t6.(SP), R1");            // cy
-            E("        MOV\t8.(R5), R2");            // w
-            E("        JSR\tPC, RGCALL");
-            E("        ADD\tR3, 6.(SP)");            // cy += ph
-            E("        INC\tR4");
-            E("        DEC\tR1");
-            E("        BNE\tRGTBL");
-            E("        ADD\t#8., SP");
-            E("        BR\tRGRADEX");
-
-            // ── RGGRBT: низ→верх ──────────────────────────────────
-            // pat=0 снизу, pat=7 сверху
-            E("RGGRBT:");
-            E("        MOV\t10.(R5), R2");
-            E("        MOV\tR2, R3");
-            E("        ASR\tR3"); E("        ASR\tR3"); E("        ASR\tR3");
-            E("        BIC\t#177770, R2");
-            // cy = y+h (начинаем снизу)
-            E("        MOV\t6.(R5), R0");
-            E("        ADD\t10.(R5), R0");
-            E("        MOV\tR0, -(SP)");             // SP+6=cy=y+h
-            E("        MOV\tR3, -(SP)");
-            E("        MOV\tR2, -(SP)");
-            E("        CLR\t-(SP)");
-            E("        CLR\tR4");
-            E("        MOV\t#10., R1");
-            E("RGBTL:");
-            E("        MOV\t4.(SP), R3");
-            E("        ADD\t2.(SP), 0.(SP)");
-            E("        CMP\t0.(SP), #10.");
-            E("        BLT\tRGBT1");
-            E("        INC\tR3");
-            E("        SUB\t#10., 0.(SP)");
-            E("RGBT1:");
-            E("        SUB\tR3, 6.(SP)");            // cy -= ph
-            E("        MOV\t4.(R5), R0");
-            E("        MOV\t6.(SP), R1");            // cy
-            E("        MOV\t8.(R5), R2");
-            E("        JSR\tPC, RGCALL");
-            E("        INC\tR4");
-            E("        DEC\tR1");
-            E("        BNE\tRGBTL");
-            E("        ADD\t#8., SP");
-            E("        BR\tRGRADEX");
-            E("");
 
             E("; RTCRC — circle(cx,cy,r,color)");
             E(";   4.(R5)=cx  6.(R5)=cy  8.(R5)=r  10.(R5)=color");

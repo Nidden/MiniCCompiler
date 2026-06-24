@@ -89,7 +89,7 @@ namespace CompMacro11
             "cls", "init", "pause", "print_char", "print_nl", "print_int", "print_str", "printf",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "rect", "fill_rect", "fill_dither", "fill_gradient", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setCursorColor",
+            "point", "line", "rect", "fill_rect", "fill_dither", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setCursorColor",
             "vsync", "sin256", "cos256", "abs", "min", "max", "clamp"
         };
 
@@ -686,6 +686,22 @@ namespace CompMacro11
             if (e is AssignExpr a) return ExprHasCalls(a.Target) || ExprHasCalls(a.Value);
             if (e is TernaryExpr t) return ExprHasCalls(t.Cond) || ExprHasCalls(t.Then) || ExprHasCalls(t.Else);
             if (e is ArrayIndexExpr ai) return ExprHasCalls(ai.Array) || ExprHasCalls(ai.Index);
+            return false;
+        }
+
+        // Рекурсивно ищет вызов функции с именем name в любом узле выражения.
+        // Нужно, чтобы не инлайнить рекурсивную функцию, чей самовызов спрятан
+        // внутри тернарника/бинарного выражения (иначе inline зациклится).
+        private static bool ExprCallsSelf(ExprNode e, string name)
+        {
+            if (e == null) return false;
+            if (e is CallExpr c) return c.FuncName == name
+                || c.Args.Exists(arg => ExprCallsSelf(arg, name));
+            if (e is BinaryExpr b) return ExprCallsSelf(b.Left, name) || ExprCallsSelf(b.Right, name);
+            if (e is UnaryExpr u) return ExprCallsSelf(u.Operand, name);
+            if (e is AssignExpr a) return ExprCallsSelf(a.Target, name) || ExprCallsSelf(a.Value, name);
+            if (e is TernaryExpr t) return ExprCallsSelf(t.Cond, name) || ExprCallsSelf(t.Then, name) || ExprCallsSelf(t.Else, name);
+            if (e is ArrayIndexExpr ai) return ExprCallsSelf(ai.Array, name) || ExprCallsSelf(ai.Index, name);
             return false;
         }
 
@@ -1918,9 +1934,9 @@ namespace CompMacro11
             if (f.Body.Stmts.Count != 1) return false;
             var stmt = f.Body.Stmts[0];
             if (stmt is ReturnStmtNode ret)
-                return ret.Value != null && !(ret.Value is CallExpr ce && ce.FuncName == f.Name);
-            if (stmt is ExprStmtNode)
-                return true;
+                return ret.Value != null && !ExprCallsSelf(ret.Value, f.Name);
+            if (stmt is ExprStmtNode es)
+                return !ExprCallsSelf(es.Expr, f.Name);
             return false;
         }
 
@@ -2943,21 +2959,6 @@ namespace CompMacro11
                     GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
                     EI("JSR", "PC, RTDITH");
-                    EI("ADD", "#14., SP");
-                    break;
-
-                case "fill_gradient":
-                    if (c.Args.Count != 7)
-                        throw new Exception($"Строка {c.Line}: fill_gradient(x,y,w,h,fg,bg,dir) требует 7 аргументов");
-                    EC($"fill_gradient({ArgStr(c)}): градиент");
-                    GenExpr(c.Args[6]); EI("MOV", "R0, -(SP)"); // dir 0..3
-                    GenExpr(c.Args[5]); EI("MOV", "R0, -(SP)"); // bgcolor
-                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // fgcolor
-                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
-                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
-                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
-                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
-                    EI("JSR", "PC, RTGRAD");
                     EI("ADD", "#14., SP");
                     break;
 
