@@ -344,7 +344,10 @@ namespace CompMacro11
             _r0Known = false; _labelPos.Clear();
             _globals.Clear(); _strings.Clear(); _strCnt = 0;
             _progFuncs = new System.Collections.Generic.Dictionary<string, FuncDeclNode>();
-            foreach (var f in prog.Functions) _progFuncs[f.Name] = f; _inlineFuncs.Clear();
+            // Определение (с телом) имеет приоритет над прототипом.
+            foreach (var f in prog.Functions)
+                if (!_progFuncs.ContainsKey(f.Name) || f.Body != null) _progFuncs[f.Name] = f;
+            _inlineFuncs.Clear();
             // Зарезервировать рантайм-метки
             foreach (var lbl in new[] {
                 "RTSTTBL","RTTBL1","RTPAUS","RTPS0","RTPRNT","RTPRN1","RTPRN2",
@@ -378,10 +381,18 @@ namespace CompMacro11
             }
 
             // Проход 1: сигнатуры функций
+            // Имена функций, у которых ЕСТЬ тело (определения).
+            var defined = new System.Collections.Generic.HashSet<string>();
+            foreach (var f in prog.Functions) if (f.Body != null) defined.Add(f.Name);
+
             foreach (var f in prog.Functions)
             {
+                // Прототип пропускаем, если есть полное определение этой функции —
+                // чтобы не регистрировать метку дважды.
+                if (f.Body == null && defined.Contains(f.Name)) continue;
                 RegisterFunc(f);
-                if (IsInlineCandidate(f)) _inlineFuncs.Add(f.Name);
+                // Прототип (Body == null) не инлайнится — у него нет тела.
+                if (f.Body != null && IsInlineCandidate(f)) _inlineFuncs.Add(f.Name);
             }
 
             E("        .TITLE\tMINIC");
@@ -400,7 +411,7 @@ namespace CompMacro11
             // Код пользователя — в отдельный буфер (нужен для анализа вызовов RT)
             var userBuf = new StringBuilder();
             _out = userBuf;
-            foreach (var f in prog.Functions) GenFunc(f);
+            foreach (var f in prog.Functions) { if (f.Body != null) GenFunc(f); }
             string userCode = _out.ToString();
             _out = mainBuf;
 

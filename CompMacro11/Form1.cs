@@ -116,6 +116,9 @@ namespace CompMacro11
         private RichTextBox _out;
         private LineNumPanel _linePanel;
         private Label _status;
+        private Panel _statusBar;
+        private Label _statusInfo;
+        private Label _statusPos;
         private bool _highlighting;
         private System.Windows.Forms.Timer _hlTimer;
         private SpriteEditor _spriteEditor;
@@ -161,26 +164,20 @@ namespace CompMacro11
                 SetStatus("", false);
             };
 
-            var btnExample = MakeBtn("Пример", 75, Color.FromArgb(60, 60, 60), 250);
-            btnExample.Click += (_, __) => { _src.Text = LoadSample(); Highlight(); };
+            var btnExample = MakeBtn("Примеры ▾", 95, Color.FromArgb(60, 60, 60), 250);
+            btnExample.Click += (_, __) => ShowExamplesMenu(btnExample);
 
 
             var btnRun = MakeBtn("▶ Эмулятор", 105, Color.FromArgb(30, 90, 50), 456);
             btnRun.Click += (_, __) => RunInEmulator();
 
-            _chkOptimize = new CheckBox
-            {
-                Text = "Оптимизация",
-                Checked = true,
-                ForeColor = C_GRAY,
-                BackColor = Color.Transparent,
-                AutoSize = false,
-                Width = 115,
-                Height = 28,
-                Location = new Point(333, 9),
-                Font = F_UI,
-                FlatStyle = FlatStyle.Flat
-            };
+            // Чекбокс оптимизации больше не показывается в баре —
+            // его состояние хранится здесь, а управление перенесено
+            // в меню «Настройки». Создаём без добавления в bar.Controls.
+            _chkOptimize = new CheckBox { Checked = true, Visible = false };
+
+            var btnSettings = MakeBtn("⚙ Настройки ▾", 120, Color.FromArgb(70, 60, 40), 333);
+            btnSettings.Click += (_, __) => ShowSettingsMenu(btnSettings);
 
             var btnHelp = MakeBtn("?", 32, Color.FromArgb(50, 80, 120), 569);
             btnHelp.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
@@ -277,7 +274,7 @@ namespace CompMacro11
                 menu.Show(btnProject, new System.Drawing.Point(0, btnProject.Height));
             };
 
-            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, _chkOptimize, btnRun, btnHelp, btnSprites, btnProject, _status });
+            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, btnSettings, btnRun, btnHelp, btnSprites, btnProject, _status });
 
             // ── Заголовки ─────────────────────────────────────────
             var hdr = new Panel
@@ -379,13 +376,71 @@ namespace CompMacro11
             split.Panel1.Controls.Add(leftContainer);
             split.Panel2.Controls.Add(_out);
 
+            // ── Статусбар внизу ───────────────────────────────────
+            _statusBar = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 24,
+                BackColor = C_ACCENT
+            };
+            _statusInfo = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "Готово",
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 8.5f),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(8, 0, 0, 0),
+                BackColor = Color.Transparent
+            };
+            _statusPos = new Label
+            {
+                Dock = DockStyle.Right,
+                Width = 320,
+                Text = "Стр 1, Кол 1",
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 8.5f),
+                TextAlign = ContentAlignment.MiddleRight,
+                Padding = new Padding(0, 0, 10, 0),
+                BackColor = Color.Transparent
+            };
+            _statusBar.Controls.Add(_statusInfo);
+            _statusBar.Controls.Add(_statusPos);
+
+            // обновление позиции курсора и счётчиков при изменениях
+            _src.SelectionChanged += (_, __) => UpdateStatusBar();
+            _src.TextChanged += (_, __) => UpdateStatusBar();
+
+            // Порядок важен: Fill добавляется первым, Bottom/Top — после,
+            // чтобы доки распределились корректно.
             Controls.Add(split);
+            Controls.Add(_statusBar);
             Controls.Add(hdr);
             Controls.Add(bar);
 
             var lastCode = AppEnvironment.LastCode;
             _src.Text = !string.IsNullOrEmpty(lastCode) ? lastCode : LoadSample();
             Highlight();
+            UpdateStatusBar();
+        }
+
+        // Обновляет нижний статусбар: позиция курсора, число строк/символов.
+        private void UpdateStatusBar()
+        {
+            if (_statusPos == null || _src == null) return;
+            int idx = _src.SelectionStart;
+            int line = _src.GetLineFromCharIndex(idx);
+            int lineStart = _src.GetFirstCharIndexFromLine(line);
+            int col = idx - lineStart;
+            int totalLines = _src.Lines.Length;
+            int totalChars = _src.TextLength;
+            _statusPos.Text = $"Стр {line + 1}, Кол {col + 1}   |   {totalLines} стр   |   {totalChars} симв";
+        }
+
+        // Показывает сообщение в нижнем статусбаре (например, размер .mac после компиляции).
+        private void SetStatusBarInfo(string msg)
+        {
+            if (_statusInfo != null) _statusInfo.Text = msg;
         }
 
         // ── Хелперы UI ────────────────────────────────────────────
@@ -419,13 +474,16 @@ namespace CompMacro11
         };
 
         // ── Справка ───────────────────────────────────────────────
+        // Темы справки (для списка слева)
+        private static readonly string[] HelpTopics = new[] { "Новое: рекурсия, константы", "Синтаксис языка", "Встроенные функции", "Вывод текста", "Позиция и цвет текста", "Графика (basicGraphic)", "Цвета", "Клавиши УКНЦ", "Экран УКНЦ", "Горячие клавиши" };
+
         private void ShowHelp()
         {
             var dlg = new Form
             {
                 Text = "Справка — Mini-C для УКНЦ",
-                Size = new Size(700, 620),
-                MinimumSize = new Size(500, 400),
+                Size = new Size(860, 640),
+                MinimumSize = new Size(640, 440),
                 BackColor = Color.FromArgb(28, 28, 28),
                 ForeColor = Color.FromArgb(212, 212, 212),
                 Font = F_UI,
@@ -434,6 +492,7 @@ namespace CompMacro11
             };
             dlg.KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) dlg.Close(); };
 
+            // Правая панель — контент
             var rtb = new RichTextBox
             {
                 Dock = DockStyle.Fill,
@@ -442,124 +501,212 @@ namespace CompMacro11
                 Font = new Font("Consolas", 10f),
                 BorderStyle = BorderStyle.None,
                 ReadOnly = true,
-                WordWrap = true,
+                WordWrap = false,
                 ScrollBars = RichTextBoxScrollBars.Vertical
             };
-            dlg.Controls.Add(rtb);
+
+            // Левая панель — список тем
+            var list = new ListBox
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(37, 37, 38),
+                ForeColor = Color.FromArgb(212, 212, 212),
+                Font = new Font("Segoe UI", 9.5f),
+                BorderStyle = BorderStyle.None,
+                IntegralHeight = false,
+                ItemHeight = 26
+            };
+            foreach (var t in HelpTopics) list.Items.Add(t);
+            list.SelectedIndexChanged += (_, __) =>
+            {
+                if (list.SelectedIndex < 0) return;
+                rtb.Clear();
+                FillTopic(rtb, list.SelectedIndex);
+                rtb.SelectionStart = 0;
+                rtb.ScrollToCaret();
+            };
+
+            // Заголовок над списком
+            var listHdr = new Panel { Dock = DockStyle.Top, Height = 34, BackColor = C_ACCENT };
+            listHdr.Controls.Add(new Label
+            {
+                Text = "  Разделы",
+                Dock = DockStyle.Fill,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            var split = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                SplitterDistance = 220,
+                BackColor = Color.FromArgb(28, 28, 28),
+                SplitterWidth = 3
+            };
+            split.Panel1.Controls.Add(list);
+            split.Panel1.Controls.Add(listHdr);
+            split.Panel2.Controls.Add(rtb);
+            split.Panel1MinSize = 160;
+
+            dlg.Controls.Add(split);
             dlg.Show();
-            FillHelp(rtb);
+            list.SelectedIndex = 0;   // показать первую тему
         }
 
-        private void FillHelp(RichTextBox r)
+        // Заполняет правую панель содержимым выбранной темы.
+        private void FillTopic(RichTextBox r, int idx)
         {
-            HelpT(r, "\n═══ СИНТАКСИС Mini-C ═══════════════════════════════════\n", Color.FromArgb(86, 156, 214));
-            HelpT(r, "\n  Типы:        int, void, bool\n", C_TEXT);
-            HelpT(r, "  Массивы:     int a[10];   int b[4][8];   bool flags[8];\n", C_TEXT);
-            HelpT(r, "  Инициализ.:  int x = 5;   bool f = true;   int a[10] = {0};\n", C_TEXT);
-            HelpT(r, "\n  bool:        хранится как 0/1, true=1, false=0\n", C_TEXT);
-            HelpT(r, "               bool ok = true;  if (ok) { ... }\n", C_TEXT);
-            HelpT(r, "\n  Операторы:   if / else / while / for / return / break / continue\n", C_TEXT);
-            HelpT(r, "  Скобки:      {} необязательны для одного оператора\n", C_TEXT);
-            HelpT(r, "\n  Арифметика:  + - * / %\n", C_TEXT);
-            HelpT(r, "  Сравнение:   == != < > <= >=\n", C_TEXT);
-            HelpT(r, "  Логика:      && || !\n", C_TEXT);
-            HelpT(r, "  Присвоение:  = += -= *= /=\n", C_TEXT);
-            HelpT(r, "  Унарные:     - ! ++ --\n", C_TEXT);
+            switch (idx)
+            {
+                case 0:
+                    HelpT(r, "\n═══ НОВОЕ: взаимная рекурсия и константы ═══════════════\n", Color.FromArgb(78, 201, 176));
+                    HelpT(r, "\n  Forward-declaration (прототип функции):\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "    Объявите функцию до её определения — точкой с запятой\n", C_TEXT);
+                    HelpT(r, "    вместо тела. Позволяет ВЗАИМНУЮ РЕКУРСИЮ.\n\n", C_TEXT);
+                    HelpT(r, "    int isOdd(int n);            // прототип\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    int isEven(int n) {\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        if (n == 0) return 1;\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        return isOdd(n - 1);   // вызов до определения\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    }\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    int isOdd(int n) {\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        if (n == 0) return 0;\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        return isEven(n - 1);\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    }\n\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "  Константы — два способа:\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "\n    #define WIDTH 320          // препроцессор\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    #define COLOR 3\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    const int CENTER = 160;     // типизированная\n\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    Имя заменяется значением до компиляции. Удобно для\n", C_TEXT);
+                    HelpT(r, "    размеров экрана, цветов, констант игры.\n", C_TEXT);
 
-            HelpT(r, "\n═══ ВСТРОЕННЫЕ ФУНКЦИИ ══════════════════════════════════\n", Color.FromArgb(86, 156, 214));
-            HelpFn(r, "cls", "[mode]", "настройка экрана + очистка; mode 0..3 (0 по умолчанию)");
-            HelpFn(r, "pause", "", "пауза ~177777 итераций NOP");
-            HelpFn(r, "waitkey", "", "ждать клавишу → код (блокирующее)");
-            HelpFn(r, "getkey", "", "прочитать клавишу → код или 0 (неблокирующее)");
-            HelpFn(r, "sprite", "x,y,w,h,ptr", "спрайт из массива данных (MOV — перезапись)");
-            HelpFn(r, "spriteOr", "x,y,w,h,ptr", "спрайт через BIS (OR с экраном — прозрачность)");
+                    break;
+                case 1:
+                    HelpT(r, "\n═══ СИНТАКСИС Mini-C ═══════════════════════════════════\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "\n  Типы:        int, void, bool\n", C_TEXT);
+                    HelpT(r, "  Массивы:     int a[10];   int b[4][8];   bool flags[8];\n", C_TEXT);
+                    HelpT(r, "  Инициализ.:  int x = 5;   bool f = true;   int a[10] = {0};\n", C_TEXT);
+                    HelpT(r, "\n  bool:        хранится как 0/1, true=1, false=0\n", C_TEXT);
+                    HelpT(r, "               bool ok = true;  if (ok) { ... }\n", C_TEXT);
+                    HelpT(r, "\n  Операторы:   if / else / while / for / return / break / continue\n", C_TEXT);
+                    HelpT(r, "  Скобки:      {} необязательны для одного оператора\n", C_TEXT);
+                    HelpT(r, "\n  Арифметика:  + - * / %\n", C_TEXT);
+                    HelpT(r, "  Сравнение:   == != < > <= >=\n", C_TEXT);
+                    HelpT(r, "  Логика:      && || !\n", C_TEXT);
+                    HelpT(r, "  Присвоение:  = += -= *= /=\n", C_TEXT);
+                    HelpT(r, "  Унарные:     - ! ++ --\n", C_TEXT);
 
-            HelpT(r, "\n═══ ВЫВОД ТЕКСТА ════════════════════════════════════════\n", Color.FromArgb(86, 156, 214));
-            HelpFn(r, "print_int", "n", "вывод числа (со знаком)");
-            HelpFn(r, "print_char", "c", "вывод одного символа по коду ASCII");
-            HelpFn(r, "print_str", "s", "вывод строки: print_str(\"hello\")");
-            HelpFn(r, "print_nl", "", "перевод строки (CR)");
-            HelpFn(r, "printf", "fmt, ...", "форматный вывод: printf(\"x=%d c=%c\\n\", x, c)");
-            HelpT(r, "\n  Форматы printf:\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "    %d  — целое число (print_int)\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "    %c  — символ по коду (print_char)\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "    %s  — строковый литерал (print_str)\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "    \\n — перевод строки\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "  Пример:\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "    printf(\"x=%d, y=%d\\n\", x, y);\n", Color.FromArgb(181, 206, 168));
-            HelpT(r, "    printf(\"c=%c\\n\", 65);  // выведет c=A\n", Color.FromArgb(181, 206, 168));
+                    break;
+                case 2:
+                    HelpT(r, "\n═══ ВСТРОЕННЫЕ ФУНКЦИИ ══════════════════════════════════\n", Color.FromArgb(86, 156, 214));
+                    HelpFn(r, "cls", "[mode]", "настройка экрана + очистка; mode 0..3 (0 по умолчанию)");
+                    HelpFn(r, "pause", "", "пауза ~177777 итераций NOP");
+                    HelpFn(r, "waitkey", "", "ждать клавишу → код (блокирующее)");
+                    HelpFn(r, "getkey", "", "прочитать клавишу → код или 0 (неблокирующее)");
+                    HelpFn(r, "sprite", "x,y,w,h,ptr", "спрайт из массива данных (MOV — перезапись)");
+                    HelpFn(r, "spriteOr", "x,y,w,h,ptr", "спрайт через BIS (OR с экраном — прозрачность)");
 
-            HelpT(r, "\n═══ ПОЗИЦИЯ И ЦВЕТ ТЕКСТА ═══════════════════════════════\n", Color.FromArgb(86, 156, 214));
-            HelpFn(r, "gotoxy", "x, y", "курсор в колонку x, строку y. Отсчёт с 0");
-            HelpFn(r, "setTextColor", "c", "цвет текста 0..7 (см. таблицу ниже)");
-            HelpFn(r, "setCursorColor", "c", "цвет курсора 0..7 (= фон, чтобы скрыть)");
-            HelpT(r, "\n  Цвета setTextColor (выверено на эмуляторе):\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "    0 = чёрный    4 = зелёный\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "    1 = синий     5 = cyan (голубой)\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "    2 = красный   6 = жёлтый\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "    3 = magenta   7 = белый\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "  (биты: 1=синий, 2=красный, 4=зелёный — складываются)\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "  Пример:\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "    setTextColor(6); gotoxy(10, 5); print_str(\"GOLD\");\n", Color.FromArgb(181, 206, 168));
-            HelpT(r, "  Внимание: текст и графику (cls) в одной программе мешать нельзя.\n", Color.FromArgb(200, 150, 100));
+                    break;
+                case 3:
+                    HelpT(r, "\n═══ ВЫВОД ТЕКСТА ════════════════════════════════════════\n", Color.FromArgb(86, 156, 214));
+                    HelpFn(r, "print_int", "n", "вывод числа (со знаком)");
+                    HelpFn(r, "print_char", "c", "вывод одного символа по коду ASCII");
+                    HelpFn(r, "print_str", "s", "вывод строки: print_str(\"hello\")");
+                    HelpFn(r, "print_nl", "", "перевод строки (CR)");
+                    HelpFn(r, "printf", "fmt, ...", "форматный вывод: printf(\"x=%d c=%c\\n\", x, c)");
+                    HelpT(r, "\n  Форматы printf:\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "    %d  — целое число (print_int)\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "    %c  — символ по коду (print_char)\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "    %s  — строковый литерал (print_str)\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "    \\n — перевод строки\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "  Пример:\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "    printf(\"x=%d, y=%d\\n\", x, y);\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    printf(\"c=%c\\n\", 65);  // выведет c=A\n", Color.FromArgb(181, 206, 168));
 
-            HelpT(r, "\n═══ basicGraphic — пакет попиксельной графики ═══════════\n", Color.FromArgb(78, 201, 176));
-            HelpT(r, "  Фундамент: point(). Все остальные функции строятся поверх.\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "  Экран: 320×264 (режим 0/2) или 640×264 (режим 1/3), 4 цвета.\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "  Цвета: 0=чёрный  1=синий  2=зелёный  3=белый\n", Color.FromArgb(150, 150, 150));
-            HelpT(r, "  Клиппинг автоматический везде. Координаты в пикселях.\n\n", Color.FromArgb(150, 150, 150));
-            HelpFn(r, "point", "x, y, c", "пиксель — фундамент пакета. Нативный, максимальная скорость.");
-            HelpFn(r, "line", "x0,y0, x1,y1, c", "линия Брезенхэма. Нативный. Клиппинг Cohen-Sutherland.");
-            HelpFn(r, "rect", "x, y, w, h, c", "прямоугольник (контур). Нативный. 4 стороны через line.");
-            HelpFn(r, "fill_rect", "x, y, w, h, c", "залитый прямоугольник. Нативный. Словами + пиксели по краям.");
-            HelpFn(r, "fill_grad_h", "x, y, w, h, fg, bg", "горизонтальный градиент лево→право. fg→bg через 8 уровней.");
-            HelpFn(r, "fill_grad_v", "x, y, w, h, fg, bg", "вертикальный градиент верх→низ. fg→bg через 8 уровней.");
-            HelpFn(r, "random", "n", "случайное число 0..n-1. LFSR, период 65535. Быстрый.");
-            HelpFn(r, "vsync", "", "ждать тик таймера 50 Гц — стабильная скорость игр");
-            HelpFn(r, "sin256", "a", "синус: угол 0..255 = круг, результат -256..256");
-            HelpFn(r, "cos256", "a", "косинус: cos256(a) = sin256(a+64)");
-            HelpFn(r, "abs", "n", "модуль числа");
-            HelpFn(r, "min", "a, b", "минимум из двух");
-            HelpFn(r, "max", "a, b", "максимум из двух");
-            HelpFn(r, "clamp", "v, lo, hi", "ограничить v диапазоном [lo..hi]");
+                    break;
+                case 4:
+                    HelpT(r, "\n═══ ПОЗИЦИЯ И ЦВЕТ ТЕКСТА ═══════════════════════════════\n", Color.FromArgb(86, 156, 214));
+                    HelpFn(r, "gotoxy", "x, y", "курсор в колонку x, строку y. Отсчёт с 0");
+                    HelpFn(r, "setTextColor", "c", "цвет текста 0..7 (см. таблицу ниже)");
+                    HelpFn(r, "setCursorColor", "c", "цвет курсора 0..7 (= фон, чтобы скрыть)");
+                    HelpT(r, "\n  Цвета setTextColor (выверено на эмуляторе):\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "    0 = чёрный    4 = зелёный\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "    1 = синий     5 = cyan (голубой)\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "    2 = красный   6 = жёлтый\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "    3 = magenta   7 = белый\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "  (биты: 1=синий, 2=красный, 4=зелёный — складываются)\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "  Пример:\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "    setTextColor(6); gotoxy(10, 5); print_str(\"GOLD\");\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "  Внимание: текст и графику (cls) в одной программе мешать нельзя.\n", Color.FromArgb(200, 150, 100));
 
-            HelpT(r, "\n═══ ЦВЕТА ══════════════════════════════════════════════\n", Color.FromArgb(86, 156, 214));
-            HelpKv(r, "0", "чёрный   (0)");
-            HelpKv(r, "1", "синий    (255)");
-            HelpKv(r, "2", "зелёный  (65280)");
-            HelpKv(r, "3", "белый    (65535)");
+                    break;
+                case 5:
+                    HelpT(r, "\n═══ basicGraphic — пакет попиксельной графики ═══════════\n", Color.FromArgb(78, 201, 176));
+                    HelpT(r, "  Фундамент: point(). Все остальные функции строятся поверх.\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "  Экран: 320×264 (режим 0/2) или 640×264 (режим 1/3), 4 цвета.\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "  Цвета: 0=чёрный  1=синий  2=зелёный  3=белый\n", Color.FromArgb(150, 150, 150));
+                    HelpT(r, "  Клиппинг автоматический везде. Координаты в пикселях.\n\n", Color.FromArgb(150, 150, 150));
+                    HelpFn(r, "point", "x, y, c", "пиксель — фундамент пакета. Нативный, максимальная скорость.");
+                    HelpFn(r, "line", "x0,y0, x1,y1, c", "линия Брезенхэма. Нативный. Клиппинг Cohen-Sutherland.");
+                    HelpFn(r, "rect", "x, y, w, h, c", "прямоугольник (контур). Нативный. 4 стороны через line.");
+                    HelpFn(r, "fill_rect", "x, y, w, h, c", "залитый прямоугольник. Нативный. Словами + пиксели по краям.");
+                    HelpFn(r, "circle", "cx, cy, r, c", "окружность (контур) радиуса r. Алгоритм Брезенхэма.");
+                    HelpFn(r, "fill_dither", "x,y,w,h,pat,fg,bg", "заливка с дизерингом: паттерн pat (0..7) смешивает fg и bg.");
+                    HelpFn(r, "random", "n", "случайное число 0..n-1. LFSR, период 65535. Быстрый.");
+                    HelpFn(r, "vsync", "", "ждать тик таймера 50 Гц — стабильная скорость игр");
+                    HelpFn(r, "sin256", "a", "синус: угол 0..255 = круг, результат -256..256");
+                    HelpFn(r, "cos256", "a", "косинус: cos256(a) = sin256(a+64)");
+                    HelpFn(r, "abs", "n", "модуль числа");
+                    HelpFn(r, "min", "a, b", "минимум из двух");
+                    HelpFn(r, "max", "a, b", "максимум из двух");
+                    HelpFn(r, "clamp", "v, lo, hi", "ограничить v диапазоном [lo..hi]");
 
-            HelpT(r, "\n═══ КЛАВИШИ УКНЦ (десятичные) ══════════════════════════\n", Color.FromArgb(86, 156, 214));
-            HelpKv(r, "67", "→  вправо  (103 окт)");
-            HelpKv(r, "68", "←  влево   (104 окт)");
-            HelpKv(r, "65", "↑  вверх   (101 окт)");
-            HelpKv(r, "66", "↓  вниз    (102 окт)");
-            HelpKv(r, "32", "   пробел  ( 40 окт)");
-            HelpKv(r, "13", "   Enter   ( 15 окт)");
+                    break;
+                case 6:
+                    HelpT(r, "\n═══ ЦВЕТА ══════════════════════════════════════════════\n", Color.FromArgb(86, 156, 214));
+                    HelpKv(r, "0", "чёрный   (0)");
+                    HelpKv(r, "1", "синий    (255)");
+                    HelpKv(r, "2", "зелёный  (65280)");
+                    HelpKv(r, "3", "белый    (65535)");
 
-            HelpT(r, "\n═══ ЭКРАН УКНЦ ══════════════════════════════════════════\n", Color.FromArgb(86, 156, 214));
-            HelpT(r, "  Разрешение:  320 × 264 пикселей\n", C_TEXT);
-            HelpT(r, "  1 слово X  = 8 пикселей по горизонтали\n", C_TEXT);
-            HelpT(r, "  1 строка Y = 1 пиксель по вертикали\n", C_TEXT);
-            HelpT(r, "  Ширина:      40 слов (x: 0-39)\n", C_TEXT);
-            HelpT(r, "  Высота:      264 строки (y: 0-263)\n", C_TEXT);
-            HelpT(r, "  Клетка 2×32 = видимый прямоугольник 16×32 пикселей\n", C_TEXT);
+                    break;
+                case 7:
+                    HelpT(r, "\n═══ КЛАВИШИ УКНЦ (десятичные) ══════════════════════════\n", Color.FromArgb(86, 156, 214));
+                    HelpKv(r, "67", "→  вправо  (103 окт)");
+                    HelpKv(r, "68", "←  влево   (104 окт)");
+                    HelpKv(r, "65", "↑  вверх   (101 окт)");
+                    HelpKv(r, "66", "↓  вниз    (102 окт)");
+                    HelpKv(r, "32", "   пробел  ( 40 окт)");
+                    HelpKv(r, "13", "   Enter   ( 15 окт)");
 
-            HelpT(r, "\n═══ ГОРЯЧИЕ КЛАВИШИ РЕДАКТОРА ══════════════════════════\n", Color.FromArgb(86, 156, 214));
-            HelpT(r, "  F5         — компилировать\n", C_TEXT);
-            HelpT(r, "  Ctrl+D     — дублировать строку\n", C_TEXT);
-            HelpT(r, "  Ctrl+/     — комментировать/раскомментировать\n", C_TEXT);
-            HelpT(r, "  Tab        — отступ 4 пробела (или сдвиг блока)\n", C_TEXT);
-            HelpT(r, "  Shift+Tab  — убрать отступ\n", C_TEXT);
-            HelpT(r, "  Enter      — автоотступ (доп. отступ после '{')\n", C_TEXT);
-            HelpT(r, "  Alt+↑ / ↓  — переместить строку вверх/вниз\n", C_TEXT);
-            HelpT(r, "  ( [ { \"     — автозакрытие пар (оборачивает выделение)\n", C_TEXT);
-            HelpT(r, "  Ctrl+Z/Y   — отмена/повтор\n", C_TEXT);
-            HelpT(r, "  Esc        — закрыть справку\n", C_TEXT);
+                    break;
+                case 8:
+                    HelpT(r, "\n═══ ЭКРАН УКНЦ ══════════════════════════════════════════\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "  Разрешение:  320 × 264 пикселей\n", C_TEXT);
+                    HelpT(r, "  1 слово X  = 8 пикселей по горизонтали\n", C_TEXT);
+                    HelpT(r, "  1 строка Y = 1 пиксель по вертикали\n", C_TEXT);
+                    HelpT(r, "  Ширина:      40 слов (x: 0-39)\n", C_TEXT);
+                    HelpT(r, "  Высота:      264 строки (y: 0-263)\n", C_TEXT);
+                    HelpT(r, "  Клетка 2×32 = видимый прямоугольник 16×32 пикселей\n", C_TEXT);
 
-            r.SelectionStart = 0;
-            r.ScrollToCaret();
+                    break;
+                case 9:
+                    HelpT(r, "\n═══ ГОРЯЧИЕ КЛАВИШИ РЕДАКТОРА ══════════════════════════\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "  F5         — компилировать\n", C_TEXT);
+                    HelpT(r, "  Ctrl+D     — дублировать строку\n", C_TEXT);
+                    HelpT(r, "  Ctrl+/     — комментировать/раскомментировать\n", C_TEXT);
+                    HelpT(r, "  Tab        — отступ 4 пробела (или сдвиг блока)\n", C_TEXT);
+                    HelpT(r, "  Shift+Tab  — убрать отступ\n", C_TEXT);
+                    HelpT(r, "  Enter      — автоотступ (доп. отступ после '{')\n", C_TEXT);
+                    HelpT(r, "  Alt+↑ / ↓  — переместить строку вверх/вниз\n", C_TEXT);
+                    HelpT(r, "  ( [ { \"     — автозакрытие пар (оборачивает выделение)\n", C_TEXT);
+                    HelpT(r, "  Ctrl+Z/Y   — отмена/повтор\n", C_TEXT);
+                    HelpT(r, "  Esc        — закрыть справку\n", C_TEXT);
+
+                    break;
+            }
         }
+
 
         private void HelpT(RichTextBox r, string s, Color c)
         {
@@ -961,6 +1108,8 @@ namespace CompMacro11
                 _out.Text = asm;
                 int asmLines = asm.Split('\n').Length;
                 SetStatus($"✔  OK  •  {asmLines} строк .mac", false);
+                SetStatusBarInfo($"✓ Компиляция успешна  —  {asmLines} строк, {asm.Length} символов .mac");
+                if (_statusBar != null) _statusBar.BackColor = C_ACCENT;
                 ColorizeAsm();
             }
             catch (Exception ex)
@@ -968,6 +1117,8 @@ namespace CompMacro11
                 _out.ForeColor = C_ERROR;
                 _out.Text = "ОШИБКА:\r\n\r\n" + ex.Message;
                 SetStatus("✘  " + ex.Message, true);
+                SetStatusBarInfo("✘ Ошибка компиляции");
+                if (_statusBar != null) _statusBar.BackColor = C_ERROR;
 
                 var m = Regex.Match(ex.Message, @"Строка\s+(\d+)");
                 if (m.Success && int.TryParse(m.Groups[1].Value, out int lineNum))
@@ -1391,6 +1542,93 @@ namespace CompMacro11
                 System.IO.Path.GetDirectoryName(
                     System.Reflection.Assembly.GetExecutingAssembly().Location),
                 "sample.c");
+
+        // ── Меню «Настройки» ──────────────────────────────────────
+        private void ShowSettingsMenu(Control anchor)
+        {
+            var menu = new ContextMenuStrip();
+            menu.BackColor = Color.FromArgb(45, 45, 48);
+            menu.ForeColor = Color.White;
+
+            // Оптимизация рантайма (tree-shaking) — перенесена сюда из бара
+            var miOpt = new ToolStripMenuItem("Оптимизация рантайма")
+            {
+                CheckOnClick = true,
+                Checked = _chkOptimize != null && _chkOptimize.Checked,
+                ToolTipText = "Удалять неиспользуемые функции рантайма из .mac (tree-shaking)"
+            };
+            miOpt.CheckedChanged += (s2, e2) =>
+            {
+                if (_chkOptimize != null) _chkOptimize.Checked = miOpt.Checked;
+                SetStatus(miOpt.Checked ? "✓  Оптимизация включена" : "○  Оптимизация выключена", false);
+            };
+
+            menu.Items.Add(miOpt);
+            menu.Show(anchor, new System.Drawing.Point(0, anchor.Height));
+        }
+
+        // ── Галерея примеров ──────────────────────────────────────
+        // Каждый пример: (категория, отображаемое имя, имя файла, краткое описание)
+        private static readonly (string Cat, string Name, string File, string Desc)[] Examples = new[]
+        {
+            ("Графика", "DOOM — логотип",       "doom.c",        "Логотип DOOM проявляется через заполнение блоками"),
+            ("Графика", "Волны",                "demo_waves.c",  "Две плавные синусоиды, лёгкая анимация"),
+            ("Графика", "Спирограф",            "spiro.c",       "Плетёный узор Лиссажу, плавно прорастает"),
+            ("Графика", "Звезда лучей",         "star.c",        "Вращающаяся звезда из лучей"),
+            ("Графика", "3D-каркас",            "demo_3d.c",     "Вращающийся октаэдр (3D в реальном времени)"),
+            ("Игры",    "Тетрис",               "tetris.c",      "Классический тетрис"),
+            ("Игры",    "River Raid",           "riverraid.c",   "Скролл-шутер"),
+            ("Игры",    "Match-3",              "match3.c",      "Три в ряд"),
+            ("Базовые", "Стресс-тест",          "stress_test.c", "Все 33 встроенные функции и конструкции языка"),
+            ("Базовые", "sample.c",             "sample.c",      "Базовый пример"),
+        };
+
+        // Папка с примерами: каталог рядом с exe (там же, где sample.c)
+        private static string ExamplesDir =>
+            System.IO.Path.GetDirectoryName(SamplePath);
+
+        private void ShowExamplesMenu(Control anchor)
+        {
+            var menu = new ContextMenuStrip();
+            menu.BackColor = Color.FromArgb(45, 45, 48);
+            menu.ForeColor = Color.White;
+
+            string lastCat = null;
+            foreach (var ex in Examples)
+            {
+                if (lastCat != null && ex.Cat != lastCat)
+                    menu.Items.Add(new ToolStripSeparator());
+                lastCat = ex.Cat;
+
+                var path = System.IO.Path.Combine(ExamplesDir, ex.File);
+                bool exists = System.IO.File.Exists(path);
+
+                var mi = new ToolStripMenuItem($"{ex.Name}")
+                {
+                    ToolTipText = ex.Desc + (exists ? "" : "  (файл не найден)"),
+                    Enabled = exists
+                };
+                string p = path; string nm = ex.Name;
+                mi.Click += (s2, e2) => LoadExample(p, nm);
+                menu.Items.Add(mi);
+            }
+
+            menu.Show(anchor, new System.Drawing.Point(0, anchor.Height));
+        }
+
+        private void LoadExample(string path, string name)
+        {
+            try
+            {
+                _src.Text = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
+                Highlight();
+                SetStatus($"✓  Загружен пример: {name}", false);
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"⚠  Не удалось загрузить {name}: {ex.Message}", true);
+            }
+        }
 
         private string LoadSample()
         {

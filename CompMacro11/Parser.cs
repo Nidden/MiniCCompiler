@@ -151,6 +151,11 @@ namespace CompMacro11
             }
             Expect(TokenType.RParen);
 
+            // Forward-declaration (прототип): после ')' стоит ';' вместо тела.
+            // Тело = null, функция только регистрирует сигнатуру.
+            if (Match(TokenType.Semicolon))
+                return new FuncDeclNode { Name = name, ReturnType = retType, Params = parms, Body = null, Line = line };
+
             var body = ParseBlock();
             return new FuncDeclNode { Name = name, ReturnType = retType, Params = parms, Body = body, Line = line };
         }

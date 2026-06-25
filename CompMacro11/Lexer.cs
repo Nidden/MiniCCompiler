@@ -61,7 +61,49 @@ namespace CompMacro11
             {"continue", TokenType.KwContinue}
         };
 
-        public Lexer(string src) { _src = src; _pos = 0; _line = 1; }
+        public Lexer(string src) { _src = Preprocess(src); _pos = 0; _line = 1; }
+
+        // Препроцессор #define: собирает "#define NAME VALUE", удаляет эти строки
+        // (заменяя пустыми, чтобы номера строк не сбились) и подставляет значения.
+        // Поддержка простых констант: #define MAX 100, #define W 320.
+        private static string Preprocess(string src)
+        {
+            var defines = new System.Collections.Generic.Dictionary<string, string>();
+            var lines = src.Replace("\r\n", "\n").Split('\n');
+            // 1) собрать определения, заменить строки #define пустыми (номера строк целы)
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var trimmed = lines[i].TrimStart();
+                if (trimmed.StartsWith("#define"))
+                {
+                    var m = System.Text.RegularExpressions.Regex.Match(
+                        trimmed, @"^#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$");
+                    if (m.Success)
+                        defines[m.Groups[1].Value] = m.Groups[2].Value.Trim();
+                    lines[i] = ""; // убрать строку, сохранив нумерацию
+                }
+                else
+                {
+                    // const int N = 10;  → именованная константа, подстановка N→10
+                    var mc = System.Text.RegularExpressions.Regex.Match(
+                        trimmed, @"^const\s+(?:int|bool)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+?)\s*;\s*$");
+                    if (mc.Success)
+                    {
+                        defines[mc.Groups[1].Value] = "(" + mc.Groups[2].Value.Trim() + ")";
+                        lines[i] = "";
+                    }
+                }
+            }
+            if (defines.Count == 0) return src;
+            string result = string.Join("\n", lines);
+            // 2) подставить значения как целые слова (не внутри других идентификаторов)
+            foreach (var kv in defines)
+            {
+                result = System.Text.RegularExpressions.Regex.Replace(
+                    result, @"\b" + System.Text.RegularExpressions.Regex.Escape(kv.Key) + @"\b", kv.Value);
+            }
+            return result;
+        }
 
         private char Peek(int offset = 0) => (_pos + offset < _src.Length) ? _src[_pos + offset] : '\0';
 
