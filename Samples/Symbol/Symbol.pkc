@@ -1,0 +1,16 @@
+﻿{
+  "Name": "Symbol",
+  "Version": "1.0",
+  "Created": "2026-06-26 10:42:24",
+  "Modified": "2026-06-26 10:42:47",
+  "MainFile": "main.mc",
+  "CursorLine": 1,
+  "CursorCol": 1,
+  "Settings": {
+    "TargetPlatform": "UKNC",
+    "ScreenMode": 1,
+    "OptimizeLabels": true
+  },
+  "Files": ["main.mc"],
+  "Sprites": []
+}

@@ -89,7 +89,7 @@ namespace CompMacro11
             "cls", "init", "pause", "print_char", "print_nl", "print_int", "print_str", "printf",
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
-            "point", "line", "rect", "fill_rect", "fill_dither", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setCursorColor",
+            "point", "line", "rect", "fill_rect", "fill_dither", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setPlaceColor", "setCursorColor",
             "vsync", "sin256", "cos256", "abs", "min", "max", "clamp"
         };
 
@@ -2777,6 +2777,14 @@ namespace CompMacro11
                         throw new Exception($"Строка {c.Line}: setTextColor(c) требует 1 аргумент");
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)");
                     EI("JSR", "PC, RTSCOL");
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "setPlaceColor":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: setPlaceColor(c) требует 1 аргумент (0..7)");
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTPCOL");
                     EI("ADD", "#2., SP");
                     break;
 

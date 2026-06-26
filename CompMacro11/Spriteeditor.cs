@@ -209,6 +209,18 @@ namespace CompMacro11
             TBtnSep(bar, ref bx);
             TBtn(bar, "✕ Удалить", ref bx, Color.FromArgb(70, 25, 25), () => DeleteSprite());
             TBtnSep(bar, ref bx);
+            // ── Операции редактирования ──
+            TBtn(bar, "↶ Отмена", ref bx, C_BG3, () => Undo(), 78);
+            TBtn(bar, "🗑 Очистить", ref bx, C_BG3, () => EditClear());
+            TBtn(bar, "▦ Залить", ref bx, C_BG3, () => EditFill());
+            TBtn(bar, "◐ Инверт", ref bx, C_BG3, () => EditInvert());
+            TBtn(bar, "↔", ref bx, C_BG3, () => EditFlipH(), 36);
+            TBtn(bar, "↕", ref bx, C_BG3, () => EditFlipV(), 36);
+            TBtn(bar, "←", ref bx, C_BG3, () => EditShift(-1, 0), 32);
+            TBtn(bar, "→", ref bx, C_BG3, () => EditShift(1, 0), 32);
+            TBtn(bar, "↑", ref bx, C_BG3, () => EditShift(0, -1), 32);
+            TBtn(bar, "↓", ref bx, C_BG3, () => EditShift(0, 1), 32);
+            TBtnSep(bar, ref bx);
             TBtn(bar, "→ В код", ref bx, Color.FromArgb(0, 80, 50), () => ExportCode());
 
 
@@ -352,7 +364,7 @@ namespace CompMacro11
             // ── Центр: холст ──────────────────────────────────────
             var wrap = new Panel { Dock = DockStyle.Fill, BackColor = C_BG3, AutoScroll = true };
             _pic = new PictureBox { Location = new Point(8, 8), SizeMode = PictureBoxSizeMode.AutoSize, Cursor = Cursors.Cross };
-            _pic.MouseDown += (s, e) => { _drawing = true; PaintPixel(e.X, e.Y); };
+            _pic.MouseDown += (s, e) => { PushUndo(); _drawing = true; PaintPixel(e.X, e.Y); };
             _pic.MouseMove += (s, e) => { if (_drawing) PaintPixel(e.X, e.Y); };
             _pic.MouseUp += (s, e) => _drawing = false;
             wrap.Controls.Add(_pic);
@@ -413,6 +425,130 @@ namespace CompMacro11
             => p.Controls.Add(new Label { Text = t, Location = new Point(x, y), AutoSize = true, ForeColor = C_GRAY, Font = F_SMALL });
 
         // ── Операции со спрайтами ────────────────────────────────
+
+        // Стек отмены: снимки Pixels текущего спрайта перед каждой операцией.
+        readonly Stack<int[]> _undo = new Stack<int[]>();
+
+        // Сохранить снимок текущего спрайта в стек отмены (вызывать ДО изменения).
+        void PushUndo()
+        {
+            if (_sprites.Count == 0) return;
+            var s = _sprites[_cur];
+            if (s.Pixels == null) return;
+            _undo.Push((int[])s.Pixels.Clone());
+            if (_undo.Count > 50)
+            {            // ограничить глубину
+                var tmp = _undo.ToArray();
+                _undo.Clear();
+                for (int i = Math.Min(49, tmp.Length - 1); i >= 0; i--) _undo.Push(tmp[i]);
+            }
+        }
+
+        void Undo()
+        {
+            if (_undo.Count == 0 || _sprites.Count == 0) return;
+            var prev = _undo.Pop();
+            var s = _sprites[_cur];
+            // вернуть, только если размер совпадает (size-операции не отменяем здесь)
+            if (prev.Length == s.Pixels.Length)
+            {
+                s.Pixels = prev;
+                FullRefresh();
+            }
+        }
+
+        // Стереть весь спрайт (цвет 0).
+        void EditClear()
+        {
+            if (_sprites.Count == 0) return;
+            PushUndo();
+            var s = _sprites[_cur];
+            for (int i = 0; i < s.Pixels.Length; i++) s.Pixels[i] = 0;
+            FullRefresh();
+        }
+
+        // Залить весь спрайт текущим цветом.
+        void EditFill()
+        {
+            if (_sprites.Count == 0) return;
+            PushUndo();
+            var s = _sprites[_cur];
+            for (int i = 0; i < s.Pixels.Length; i++) s.Pixels[i] = _colorIdx;
+            FullRefresh();
+        }
+
+        // Инверсия: цвет 0↔максимальный (для 4 цветов: 0↔3, 1↔2).
+        void EditInvert()
+        {
+            if (_sprites.Count == 0) return;
+            PushUndo();
+            var s = _sprites[_cur];
+            for (int i = 0; i < s.Pixels.Length; i++) s.Pixels[i] = 3 - s.Pixels[i];
+            FullRefresh();
+        }
+
+        // Отразить по горизонтали (зеркало лево↔право).
+        void EditFlipH()
+        {
+            if (_sprites.Count == 0) return;
+            PushUndo();
+            var s = _sprites[_cur];
+            int w = s.PixelWidth, h = s.Height;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w / 2; x++)
+                {
+                    int a = y * w + x, b = y * w + (w - 1 - x);
+                    (s.Pixels[a], s.Pixels[b]) = (s.Pixels[b], s.Pixels[a]);
+                }
+            FullRefresh();
+        }
+
+        // Отразить по вертикали (зеркало верх↔низ).
+        void EditFlipV()
+        {
+            if (_sprites.Count == 0) return;
+            PushUndo();
+            var s = _sprites[_cur];
+            int w = s.PixelWidth, h = s.Height;
+            for (int y = 0; y < h / 2; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    int a = y * w + x, b = (h - 1 - y) * w + x;
+                    (s.Pixels[a], s.Pixels[b]) = (s.Pixels[b], s.Pixels[a]);
+                }
+            FullRefresh();
+        }
+
+        // Сдвиг рисунка на (dx, dy) с заворотом по краям (удобно центрировать).
+        void EditShift(int dx, int dy)
+        {
+            if (_sprites.Count == 0) return;
+            PushUndo();
+            var s = _sprites[_cur];
+            int w = s.PixelWidth, h = s.Height;
+            var np = new int[w * h];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    int nx = ((x + dx) % w + w) % w;
+                    int ny = ((y + dy) % h + h) % h;
+                    np[ny * w + nx] = s.Pixels[y * w + x];
+                }
+            s.Pixels = np;
+            FullRefresh();
+        }
+
+        // Горячая клавиша Ctrl+Z — отмена последнего действия.
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Control | Keys.Z))
+            {
+                Undo();
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
         void NewSprite()
         {
             _sprites.Add(new Sprite($"sprite_{_sprites.Count}", 1, 16));

@@ -609,6 +609,24 @@ namespace CompMacro11
             E("        MOV	(SP)+, R5");
             E("        RTS	PC");
             E("");
+            // ── RTPCOL: setPlaceColor(c) через ESC 241 (ГРАФ-A) ──
+            E("; RTPCOL — setPlaceColor(c): ESC 0241 (c+'0'). Цвет знакоместа 0..7.");
+            E("; Применяется глобально (атрибут поля). 4.(R5)=цвет.");
+            E("RTPCOL:");
+            E("        MOV	R5, -(SP)");
+            E("        MOV	SP, R5");
+            E("        MOV	R0, -(SP)");
+            E("        MOV	#27., R0");
+            E("        JSR	PC, RTPUTC");
+            E("        MOV	#161., R0");
+            E("        JSR	PC, RTPUTC");
+            E("        MOV	4.(R5), R0");
+            E("        ADD	#48., R0");
+            E("        JSR	PC, RTPUTC");
+            E("        MOV	(SP)+, R0");
+            E("        MOV	(SP)+, R5");
+            E("        RTS	PC");
+            E("");
             // ── RTCCOL: setCursorColor(c) через ESC 247 ──────────
             E("; RTCCOL — setCursorColor(c): ESC 0247 (c+'0'). Цвет курсора 0..7.");
             E("; 4.(R5)=цвет (цифра передаётся как c+48)");
@@ -629,6 +647,7 @@ namespace CompMacro11
             E("");
             // ── RTPNL — print_nl(): CR + LF + пауза для скроллинга ──
             E("RTPNL:");
+            E("        MOV	R0, -(SP)");
             E("        MOV	R1, -(SP)");
             E("        MOV	#13., R0");      // CR
             E("RTPNL1: TSTB	@#177564");
