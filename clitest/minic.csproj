@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>minic</AssemblyName>
+    <RootNamespace>CompMacro11</RootNamespace>
+    <!-- The GUI app targets .NET Framework 4.8 (Windows only). This harness
+         compiles ONLY the GUI-free compiler core so the pipeline can be
+         exercised on Linux, exactly as described in CLAUDE.md. -->
+    <NoWarn>$(NoWarn);CS0414;CS0168;CS0219;CS0649;CS0169</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Core compiler files live in ../CompMacro11 and have no WinForms deps. -->
+    <Compile Include="..\CompMacro11\Lexer.cs" Link="core\Lexer.cs" />
+    <Compile Include="..\CompMacro11\Parser.cs" Link="core\Parser.cs" />
+    <Compile Include="..\CompMacro11\AST.cs" Link="core\AST.cs" />
+    <Compile Include="..\CompMacro11\CodeGen.cs" Link="core\CodeGen.cs" />
+    <Compile Include="..\CompMacro11\CodeGen.Runtime.cs" Link="core\CodeGen.Runtime.cs" />
+    <Compile Include="..\CompMacro11\Peephole.cs" Link="core\Peephole.cs" />
+    <Compile Include="..\CompMacro11\Stdlib.cs" Link="core\Stdlib.cs" />
+  </ItemGroup>
+
+</Project>
