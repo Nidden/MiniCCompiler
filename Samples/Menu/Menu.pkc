@@ -1,0 +1,16 @@
+﻿{
+  "Name": "Menu",
+  "Version": "1.0",
+  "Created": "2026-06-26 11:21:11",
+  "Modified": "2026-06-26 11:21:40",
+  "MainFile": "main.mc",
+  "CursorLine": 1,
+  "CursorCol": 1,
+  "Settings": {
+    "TargetPlatform": "UKNC",
+    "ScreenMode": 1,
+    "OptimizeLabels": true
+  },
+  "Files": ["main.mc"],
+  "Sprites": []
+}

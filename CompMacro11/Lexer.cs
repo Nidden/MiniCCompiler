@@ -66,6 +66,23 @@ namespace CompMacro11
         // Препроцессор #define: собирает "#define NAME VALUE", удаляет эти строки
         // (заменяя пустыми, чтобы номера строк не сбились) и подставляет значения.
         // Поддержка простых констант: #define MAX 100, #define W 320.
+        // Отсекает хвостовой // комментарий, не трогая // внутри строкового
+        // или символьного литерала (например #define S "http://x").
+        private static string StripLineComment(string line)
+        {
+            bool inStr = false, inChar = false;
+            for (int i = 0; i < line.Length - 1; i++)
+            {
+                char c = line[i];
+                if (inStr) { if (c == '\\') { i++; continue; } if (c == '"') inStr = false; continue; }
+                if (inChar) { if (c == '\\') { i++; continue; } if (c == '\'') inChar = false; continue; }
+                if (c == '"') { inStr = true; continue; }
+                if (c == '\'') { inChar = true; continue; }
+                if (c == '/' && line[i + 1] == '/') return line.Substring(0, i);
+            }
+            return line;
+        }
+
         private static string Preprocess(string src)
         {
             var defines = new System.Collections.Generic.Dictionary<string, string>();
@@ -76,8 +93,10 @@ namespace CompMacro11
                 var trimmed = lines[i].TrimStart();
                 if (trimmed.StartsWith("#define"))
                 {
+                    // Отсечь хвостовой // комментарий, чтобы он не попал в значение.
+                    var noComment = StripLineComment(trimmed);
                     var m = System.Text.RegularExpressions.Regex.Match(
-                        trimmed, @"^#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$");
+                        noComment, @"^#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$");
                     if (m.Success)
                         defines[m.Groups[1].Value] = m.Groups[2].Value.Trim();
                     lines[i] = ""; // убрать строку, сохранив нумерацию
@@ -85,8 +104,9 @@ namespace CompMacro11
                 else
                 {
                     // const int N = 10;  → именованная константа, подстановка N→10
+                    var noComment = StripLineComment(trimmed);
                     var mc = System.Text.RegularExpressions.Regex.Match(
-                        trimmed, @"^const\s+(?:int|bool)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+?)\s*;\s*$");
+                        noComment, @"^const\s+(?:int|bool)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+?)\s*;\s*$");
                     if (mc.Success)
                     {
                         defines[mc.Groups[1].Value] = "(" + mc.Groups[2].Value.Trim() + ")";
