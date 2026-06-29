@@ -654,7 +654,6 @@ namespace CompMacro11
                     HelpFn(r, "fill_dither", "x,y,w,h,pat,fg,bg", "заливка с дизерингом: паттерн pat (0..7) смешивает fg и bg.");
                     HelpFn(r, "random", "n", "случайное число 0..n-1. LFSR, период 65535. Быстрый.");
                     HelpFn(r, "vsync", "", "ждать тик таймера 50 Гц — стабильная скорость игр");
-                    HelpFn(r, "flip", "", "двойной буфер: рисуй в закадровую (правую) половину x+320, затем flip() выводит кадр на экран и чистит буфер");
                     HelpFn(r, "sin256", "a", "синус: угол 0..255 = круг, результат -256..256");
                     HelpFn(r, "cos256", "a", "косинус: cos256(a) = sin256(a+64)");
                     HelpFn(r, "abs", "n", "модуль числа");
@@ -1362,7 +1361,7 @@ namespace CompMacro11
         private static readonly HashSet<string> KwControl = new HashSet<string> { "if", "else", "while", "for", "return", "break", "continue" };
         private static readonly HashSet<string> KwBuiltin = new HashSet<string>(
             new[]{"cls","sprite","spriteOr","point","circle","print",
-                  "waitkey","getkey","getTimer","pause","init","fillhline","flip"})
+                  "waitkey","getkey","getTimer","pause","init","fillhline"})
         { };
         static Form1()
         {
