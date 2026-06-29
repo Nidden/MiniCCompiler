@@ -88,6 +88,7 @@ namespace CompMacro11
         {
             "cls", "init", "pause", "print_char", "print_nl", "print_int", "print_str", "printf",
             "box", "sprite", "spriteOr",
+            "flip",
             "waitkey", "getkey",
             "point", "line", "rect", "fill_rect", "fill_dither", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setPlaceColor", "setCursorColor",
             "vsync", "sin256", "cos256", "abs", "min", "max", "clamp"
@@ -353,6 +354,7 @@ namespace CompMacro11
                 "RTSTTBL","RTTBL1","RTPAUS","RTPS0","RTPRNT","RTPRN1","RTPRN2",
                 "RTCLS","RTCSTB","RTCSC0","RTCSC1","RTCSC2","RTCSC3",
                 "RTBOX","RTBX1","RTBX2",
+                "RTFLIP","RTFLP1","RTFLP2",
                 "RTSPR","RTSP1","RTSP2","RTSPS","RTSPS1","RTSPE1","RTSPL1","RTSPL3","RTSPC1","RTSPO1","RTSPX","SPBUF" }) ;
 
             // Зарегистрировать глобальные массивы (с уникальными метками)
@@ -2800,6 +2802,13 @@ namespace CompMacro11
                     if (c.Args.Count != 0)
                         throw new Exception($"Строка {c.Line}: vsync() не принимает аргументов");
                     EI("JSR", "PC, RTVSNC");
+                    break;
+
+                case "flip":
+                    if (c.Args.Count != 0)
+                        throw new Exception($"Строка {c.Line}: flip() не принимает аргументов");
+                    EC("flip(): копировать закадровую (правую) половину на экран");
+                    EI("JSR", "PC, RTFLIP");
                     break;
 
                 case "sin256":
