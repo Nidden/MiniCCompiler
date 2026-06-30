@@ -90,7 +90,8 @@ namespace CompMacro11
             "box", "sprite", "spriteOr",
             "waitkey", "getkey",
             "point", "line", "rect", "fill_rect", "fill_dither", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setPlaceColor", "setCursorColor",
-            "vsync", "sin256", "cos256", "abs", "min", "max", "clamp"
+            "vsync", "sin256", "cos256", "abs", "min", "max", "clamp",
+            "ppu_init"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -2800,6 +2801,13 @@ namespace CompMacro11
                     if (c.Args.Count != 0)
                         throw new Exception($"Строка {c.Line}: vsync() не принимает аргументов");
                     EI("JSR", "PC, RTVSNC");
+                    break;
+
+                case "ppu_init":
+                    if (c.Args.Count != 0)
+                        throw new Exception($"Строка {c.Line}: ppu_init() не принимает аргументов");
+                    EC("ppu_init(): загрузить и запустить ПП-движок (8 цветов)");
+                    EI("JSR", "PC, RTPPINIT");
                     break;
 
                 case "sin256":

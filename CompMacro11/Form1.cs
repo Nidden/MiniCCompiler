@@ -114,6 +114,7 @@ namespace CompMacro11
         // ── Контролы ──────────────────────────────────────────────
         private RichTextBox _src;
         private RichTextBox _out;
+        private string _lastGenerated = null;   // что компилятор сгенерировал в _out последний раз
         private LineNumPanel _linePanel;
         private Label _status;
         private Panel _statusBar;
@@ -370,7 +371,7 @@ namespace CompMacro11
                 BorderStyle = BorderStyle.None,
                 ScrollBars = RichTextBoxScrollBars.Both,
                 WordWrap = false,
-                ReadOnly = true
+                ReadOnly = false
             };
 
             split.Panel1.Controls.Add(leftContainer);
@@ -1111,6 +1112,7 @@ namespace CompMacro11
                 SetStatusBarInfo($"✓ Компиляция успешна  —  {asmLines} строк, {asm.Length} символов .mac");
                 if (_statusBar != null) _statusBar.BackColor = C_ACCENT;
                 ColorizeAsm();
+                _lastGenerated = _out.Text;   // запомнить эталон: что сгенерировал компилятор
             }
             catch (Exception ex)
             {
@@ -1181,8 +1183,14 @@ namespace CompMacro11
             }
             string workDir = System.IO.Path.GetDirectoryName(emulPath);
 
-            // 2. Компилировать Mini-C → A.MAC
-            Compile();
+            // 2. Решаем, что исполнять.
+            //    Если текст правого окна совпадает с тем, что в нём сгенерировал
+            //    компилятор (или окно ещё не трогали) — компилируем заново.
+            //    Если пользователь ЗАМЕНИЛ код вручную (текст отличается от
+            //    эталона) — исполняем ровно то, что в окне, без перекомпиляции.
+            bool manual = _lastGenerated != null && _out.Text != _lastGenerated;
+            if (!manual)
+                Compile();
             if (string.IsNullOrWhiteSpace(_out.Text)) return;
             string macPath = System.IO.Path.Combine(workDir, "A.MAC");
             System.IO.File.WriteAllText(macPath, _out.Text, System.Text.Encoding.ASCII);
