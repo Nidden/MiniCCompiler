@@ -91,7 +91,7 @@ namespace CompMacro11
             "waitkey", "getkey",
             "point", "line", "rect", "fill_rect", "fill_dither", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setPlaceColor", "setCursorColor",
             "vsync", "sin256", "cos256", "abs", "min", "max", "clamp",
-            "ppu_init"
+            "ppu_init", "pp_init", "pp_point", "pp_line", "pp_stop"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -2808,6 +2808,44 @@ namespace CompMacro11
                         throw new Exception($"Строка {c.Line}: ppu_init() не принимает аргументов");
                     EC("ppu_init(): загрузить и запустить ПП-движок (8 цветов)");
                     EI("JSR", "PC, RTPPINIT");
+                    break;
+
+                case "pp_init":
+                    if (c.Args.Count != 0)
+                        throw new Exception($"Строка {c.Line}: pp_init() не принимает аргументов");
+                    EC("pp_init(): загрузить резидентный ПП-движок");
+                    EI("JSR", "PC, RTPPRES");
+                    break;
+
+                case "pp_point":
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: pp_point(x,y,c) требует 3 аргумента");
+                    EC($"pp_point({ArgStr(c)}): точка на ПП");
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // color
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTPPPT");
+                    EI("ADD", "#6., SP");
+                    break;
+
+                case "pp_line":
+                    if (c.Args.Count != 5)
+                        throw new Exception($"Строка {c.Line}: pp_line(x0,y0,x1,y1,c) требует 5 аргументов");
+                    EC($"pp_line({ArgStr(c)}): линия на ПП");
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // color
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // y1
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // x1
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y0
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x0
+                    EI("JSR", "PC, RTPPLN");
+                    EI("ADD", "#10., SP");
+                    break;
+
+                case "pp_stop":
+                    if (c.Args.Count != 0)
+                        throw new Exception($"Строка {c.Line}: pp_stop() не принимает аргументов");
+                    EC("pp_stop(): остановить резидентный ПП-движок");
+                    EI("JSR", "PC, RTPPSTOP");
                     break;
 
                 case "sin256":

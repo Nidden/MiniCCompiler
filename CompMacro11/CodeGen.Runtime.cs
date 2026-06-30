@@ -1476,6 +1476,190 @@ namespace CompMacro11
             E("PPEND2:");
             E("");
 
+            // ════════════════════════════════════════════════════════════
+            //  РЕЗИДЕНТНЫЙ ПП: pp_init / pp_point / pp_stop
+            //  Один раз загружаем резидент на ПП (pp_init), он крутится в
+            //  цикле и слушает команды через общую память (PPCMD2/PPPX/PPPY/
+            //  PPPC). Связь как у nzeemin: ПП читает переменные ЦП косвенно
+            //  через 177010 (адрес/2) → 177014.
+            //  Протокол PPCMD2:  0=ждать  1=точка  177777=стоп
+            // ════════════════════════════════════════════════════════════
+            // ── RTPPRES — pp_init(): загрузить резидент и запустить ──
+            E("; RTPPRES — pp_init(): загрузить резидентный ПП-движок и запустить.");
+            E("RTPPRES:");
+            E("        MOV\tR5, -(SP)");
+            E("        MTPS\t#340");              // запрет прерываний ЦП
+            E("        CLR\tPPCMD2");             // команда = ждать
+            E("        MOV\t#<PPREND-PPRES>/2, PPACP2"); // длина для allocate
+            E("        MOV\t#<PPREND-PPRES>/2, PPLEN2");
+            E("        MOVB\t#1, PPCMD2B");        // выделить
+            E("        JSR\tPC, PPSEN2");
+            E("        MOV\tPPAPP2, PPADR2");     // запомнить адрес ПП
+            E("        MOVB\t#20, PPCMD2B");       // записать ЦП->ПП
+            E("        MOV\t#PPRES, PPACP2");     // адрес резидента ЦП
+            E("        JSR\tPC, PPSEN2");
+            E("        MOVB\t#30, PPCMD2B");       // пуск
+            E("        MOV\tPPADR2, PPAPP2");     // точка входа
+            E("        JSR\tPC, PPSEN2");
+            E("        MTPS\t#0");                // вернуть прерывания ЦП
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
+            // ── RTPPPT — pp_point(x,y,c): послать команду точки резиденту ──
+            E("; RTPPPT — pp_point(x,y,c): отправить команду точки резиденту.");
+            E("RTPPPT:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\t4.(R5), PPPX");        // x
+            E("        MOV\t6.(R5), PPPY");        // y
+            E("        MOV\t8.(R5), PPPC");        // цвет
+            E("        MOV\t#1, PPCMD2");          // команда = точка
+            E("RTPPW:  TST\tPPCMD2");              // ждать пока ПП обнулит
+            E("        BNE\tRTPPW");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
+            // ── RTPPLN — pp_line(x0,y0,x1,y1,c): послать команду линии ──
+            E("; RTPPLN — pp_line(x0,y0,x1,y1,c): отправить команду линии резиденту.");
+            E("RTPPLN:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\t4.(R5), PPPX");        // x0
+            E("        MOV\t6.(R5), PPPY");        // y0
+            E("        MOV\t8.(R5), PPLX1");       // x1
+            E("        MOV\t10.(R5), PPLY1");      // y1
+            E("        MOV\t12.(R5), PPPC");       // цвет
+            E("        MOV\t#2, PPCMD2");          // команда = линия
+            E("RTPPLW: TST\tPPCMD2");              // ждать обнуления
+            E("        BNE\tRTPPLW");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
+            // ── RTPPSTOP — pp_stop(): остановить резидент ──
+            E("; RTPPSTOP — pp_stop(): завершить резидентный ПП-движок.");
+            E("RTPPSTOP:");
+            E("        MOV\t#177777, PPCMD2");     // команда = стоп
+            E("RTPPS1: CMP\tPPCMD2, #177777");     // ждать пока ПП подтвердит
+            E("        BEQ\tRTPPS1");
+            E("        RTS\tPC");
+            E("");
+            // Резидентный ПП: диспетчер + PPDOT (точка из PPPX/PPPY/PPPC) + PPLINE.
+            // Протокол PPCMD2: 0=ждать 1=точка 2=линия 177777=стоп.
+            // PPLINE = дословный рабочий Брезенхем, на каждом шаге пишет x,y в
+            // PPPX/PPPY и зовёт PPDOT. Регистры не конфликтуют: всё через память.
+            E("PPRES:");
+            E("PPRLP:  MOV\t#<PPCMD2/2>, @#177010");
+            E("        MOV\t@#177014, R0");
+            E("        BEQ\tPPRLP");
+            E("        CMP\tR0, #177777");
+            E("        BEQ\tPPRDON");
+            E("        CMP\tR0, #2");
+            E("        BEQ\tPPRLN");
+            E("        CMP\tR0, #1");
+            E("        BNE\tPPRACK");
+            E("        JSR\tPC, PPDOT");
+            E("        BR\tPPRACK");
+            E("PPRLN:  JSR\tPC, PPLINE");
+            E("        BR\tPPRACK");
+            E("PPRACK: MOV\t#<PPCMD2/2>, @#177010");
+            E("        CLR\t@#177014");
+            E("        BR\tPPRLP");
+            E("PPRDON: MOV\t#<PPCMD2/2>, @#177010");
+            E("        CLR\t@#177014");
+            E("        RTS\tPC");
+            E("");
+            // PPDOT — точка из PPPX/PPPY/PPPC. Портит R0..R4, сохраняет R5.
+            E("PPDOT:  MOV\t#<PPPY/2>, @#177010");
+            E("        MOV\t@#177014, R1");
+            E("        MOV\t#<DSPST/2>, R2");
+            E("        ADD\tR1, R2");
+            E("        MOV\tR2, @#177010");
+            E("        MOV\t@#177014, R3");
+            E("        MOV\t#<PPPX/2>, @#177010");
+            E("        MOV\t@#177014, R1");
+            E("        MOV\tR1, R4");
+            E("        ASR\tR4");
+            E("        ASR\tR4");
+            E("        ASR\tR4");
+            E("        ADD\tR4, R3");
+            E("        MOV\t#<PPPC/2>, @#177010");
+            E("        MOV\t@#177014, R0");
+            E("        MOV\tR0, @#177016");
+            E("        BIC\t#177770, R1");
+            E("        MOV\t#1, R0");
+            E("        ASH\tR1, R0");
+            E("        MOV\tR3, @#177010");
+            E("        MOVB\tR0, @#177024");
+            E("        RTS\tPC");
+            E("");
+            // PPLINE — Брезенхем. R0=x R1=y. dx,dy,sx,sy,err на стеке. PPDOT через память.
+            E("PPLINE:");
+            E("        SUB\t#12., SP");
+            E("        MOV\t#<PPLX1/2>, @#177010");
+            E("        MOV\t@#177014, R3");
+            E("        MOV\tR3, 8.(SP)");
+            E("        MOV\t#<PPLY1/2>, @#177010");
+            E("        MOV\t@#177014, R3");
+            E("        MOV\tR3, 10.(SP)");
+            E("        MOV\t#<PPPX/2>, @#177010");
+            E("        MOV\t@#177014, R0");
+            E("        MOV\t#<PPPY/2>, @#177010");
+            E("        MOV\t@#177014, R1");
+            E("        MOV\t8.(SP), R3");
+            E("        SUB\tR0, R3");
+            E("        BGE\tPLA");
+            E("        NEG\tR3");
+            E("PLA:    MOV\tR3, 6.(SP)");
+            E("        MOV\t10.(SP), R3");
+            E("        SUB\tR1, R3");
+            E("        BGE\tPLB");
+            E("        NEG\tR3");
+            E("PLB:    MOV\tR3, 4.(SP)");
+            E("        MOV\t#1, R3");
+            E("        CMP\tR0, 8.(SP)");
+            E("        BLT\tPLC");
+            E("        NEG\tR3");
+            E("PLC:    MOV\tR3, 2.(SP)");
+            E("        MOV\t#1, R3");
+            E("        CMP\tR1, 10.(SP)");
+            E("        BLT\tPLD");
+            E("        NEG\tR3");
+            E("PLD:    MOV\tR3, 0.(SP)");
+            E("        MOV\t6.(SP), R2");
+            E("        SUB\t4.(SP), R2");
+            E("PLLP:   MOV\t#<PPPX/2>, @#177010");
+            E("        MOV\tR0, @#177014");
+            E("        MOV\t#<PPPY/2>, @#177010");
+            E("        MOV\tR1, @#177014");
+            E("        MOV\tR0, -(SP)");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\tR2, -(SP)");
+            E("        JSR\tPC, PPDOT");
+            E("        MOV\t(SP)+, R2");
+            E("        MOV\t(SP)+, R1");
+            E("        MOV\t(SP)+, R0");
+            E("        CMP\tR0, 8.(SP)");
+            E("        BNE\tPLE");
+            E("        CMP\tR1, 10.(SP)");
+            E("        BEQ\tPLX");
+            E("PLE:    MOV\tR2, R3");
+            E("        ASL\tR3");
+            E("        MOV\t4.(SP), R4");
+            E("        NEG\tR4");
+            E("        CMP\tR3, R4");
+            E("        BLE\tPLF");
+            E("        SUB\t4.(SP), R2");
+            E("        ADD\t2.(SP), R0");
+            E("PLF:    CMP\tR3, 6.(SP)");
+            E("        BGE\tPLG");
+            E("        ADD\t6.(SP), R2");
+            E("        ADD\t0.(SP), R1");
+            E("PLG:    BR\tPLLP");
+            E("PLX:    ADD\t#12., SP");
+            E("        RTS\tPC");
+            E("PPREND:");
+            E("");
+
             // Режимы 0,2: 320 пикселей (40 слов/строку)
             // Режимы 1,3: 640 пикселей (80 слов/строку)
             // Таблицы на 640 — покрывают оба режима
@@ -1526,12 +1710,19 @@ namespace CompMacro11
             E("PPMSG2: .WORD\tPPARR2");           // указатель на массив
             E("        .WORD\t177777");           // стоп-слово
             E("PPARR2: .BYTE\t0");                // return value (0=OK)
-            E("PPCMD2: .BYTE\t1");                // команда
+            E("PPCMD2B:.BYTE\t1");                // команда массива (allocate/copy/run)
             E("        .WORD\t32");                // тип устройства = ПП (32 ВОСЬМЕРИЧНОЕ!)
             E("PPAPP2: .WORD\t0");                // адрес ОЗУ ПП (вернёт ПП)
             E("PPACP2: .WORD\t0");                // адрес ОЗУ ЦП
             E("PPLEN2: .WORD\t0");                // длина в словах
             E("PPADR2: .WORD\t0");                // сохранённый адрес ПП
+            E("; --- переменные протокола резидентного ПП (общая память) ---");
+            E("PPCMD2: .WORD\t0");                // команда резиденту: 0/1/177777
+            E("PPPX:   .WORD\t0");                // x точки / x0 линии
+            E("PPPY:   .WORD\t0");                // y точки / y0 линии
+            E("PPPC:   .WORD\t0");                // цвет
+            E("PPLX1:  .WORD\t0");                // x1 линии
+            E("PPLY1:  .WORD\t0");                // y1 линии
             E("VSFLAG: .WORD\t0");                // флаг кадра (vsync)
             E("VSCNT:  .WORD\t0");                // счётчик кадров (getTimer)
             E("OLDV:   .WORD\t0");                // старый обработчик вектора 100
