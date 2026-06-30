@@ -91,7 +91,7 @@ namespace CompMacro11
             "waitkey", "getkey",
             "point", "line", "rect", "fill_rect", "fill_dither", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setPlaceColor", "setCursorColor",
             "vsync", "sin256", "cos256", "abs", "min", "max", "clamp",
-            "ppu_init", "pp_init", "pp_point", "pp_line", "pp_stop"
+            "ppu_init", "pp_init", "pp_point", "pp_line", "pp_stop", "pp_getkey"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -2846,6 +2846,17 @@ namespace CompMacro11
                         throw new Exception($"Строка {c.Line}: pp_stop() не принимает аргументов");
                     EC("pp_stop(): остановить резидентный ПП-движок");
                     EI("JSR", "PC, RTPPSTOP");
+                    break;
+
+                case "pp_getkey":
+                    // pp_getkey() — неблокирующее чтение клавиши через резидент ПП.
+                    // Клавиатура на УКНЦ обслуживается ПП; пока крутится наш резидент,
+                    // штатный getkey()/.TTINR не работает. Резидент сам опрашивает
+                    // клавиатуру и кладёт скан-код в PPKEY. Возвращает 0 если нет.
+                    if (c.Args.Count != 0)
+                        throw new Exception($"Строка {c.Line}: pp_getkey() не принимает аргументов");
+                    EC("pp_getkey(): скан-код от резидента ПП → R0 (0=нет)");
+                    EI("JSR", "PC, RTPPKEY");
                     break;
 
                 case "sin256":
