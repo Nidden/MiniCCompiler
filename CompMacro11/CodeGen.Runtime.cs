@@ -1543,6 +1543,83 @@ namespace CompMacro11
             E("        BEQ\tRTPPS1");
             E("        RTS\tPC");
             E("");
+            // ── RTPPRECT — pp_rect(x,y,w,h,c): контур прямоугольника на ПП ──
+            // Четыре стороны = четыре вызова RTPPLN (рабочая команда линии).
+            // right=x+w-1, bottom=y+h-1. RTPPLN не портит R0..R4 на ЦП, поэтому
+            // right(R1) и bottom(R3) переживают вызовы.
+            E("; RTPPRECT — pp_rect(x,y,w,h,c): контур прямоугольника (4 линии на ПП).");
+            E("RTPPRECT:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\t4.(R5), R1");           // x
+            E("        ADD\t8.(R5), R1");           // x+w
+            E("        DEC\tR1");                    // right = x+w-1
+            E("        MOV\t6.(R5), R3");           // y
+            E("        ADD\t10.(R5), R3");          // y+h
+            E("        DEC\tR3");                    // bottom = y+h-1
+            E("        ; верх: (x,y)-(right,y)");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\t6.(R5), -(SP)");         // y1 = y
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\t6.(R5), -(SP)");         // y0 = y
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        ; низ: (x,bottom)-(right,bottom)");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR3, -(SP)");             // y1 = bottom
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\tR3, -(SP)");             // y0 = bottom
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        ; лево: (x,y)-(x,bottom)");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR3, -(SP)");             // y1 = bottom
+            E("        MOV\t4.(R5), -(SP)");         // x1 = x
+            E("        MOV\t6.(R5), -(SP)");         // y0 = y
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        ; право: (right,y)-(right,bottom)");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR3, -(SP)");             // y1 = bottom
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\t6.(R5), -(SP)");         // y0 = y
+            E("        MOV\tR1, -(SP)");             // x0 = right
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
+            // ── RTPPFRCT — pp_fill_rect(x,y,w,h,c): залитый прямоугольник на ПП ──
+            // Горизонтальные линии от y до bottom. RTPPLN не портит R1..R3 на ЦП,
+            // поэтому right(R1), row(R2), bottom(R3) переживают вызовы.
+            E("; RTPPFRCT — pp_fill_rect(x,y,w,h,c): залитый прямоугольник (линии на ПП).");
+            E("RTPPFRCT:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\t4.(R5), R1");           // x
+            E("        ADD\t8.(R5), R1");           // x+w
+            E("        DEC\tR1");                    // right = x+w-1
+            E("        MOV\t6.(R5), R2");           // row = y
+            E("        MOV\t6.(R5), R3");           // y
+            E("        ADD\t10.(R5), R3");          // y+h
+            E("        DEC\tR3");                    // bottom = y+h-1
+            E("RTFRLP: CMP\tR2, R3");               // row > bottom?
+            E("        BGT\tRTFRDN");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR2, -(SP)");             // y1 = row
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\tR2, -(SP)");             // y0 = row
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        INC\tR2");                    // row++
+            E("        BR\tRTFRLP");
+            E("RTFRDN: MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
             // Резидентный ПП: диспетчер + PPDOT (точка из PPPX/PPPY/PPPC) + PPLINE.
             // Протокол PPCMD2: 0=ждать 1=точка 2=линия 177777=стоп.
             // PPLINE = дословный рабочий Брезенхем, на каждом шаге пишет x,y в
