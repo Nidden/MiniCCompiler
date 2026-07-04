@@ -1103,6 +1103,7 @@ namespace CompMacro11
                 var ast = new Parser(tokens).ParseProgram();
                 var cg = new CodeGen();
                 cg.OptimizeRuntime = _chkOptimize == null || _chkOptimize.Checked;
+                cg.Mode = _gameMode ? CodeGen.RtMode.Game : CodeGen.RtMode.Cpu;
                 string asm = cg.Generate(ast);
 
                 _out.ForeColor = C_TEXT;
@@ -1551,6 +1552,10 @@ namespace CompMacro11
                     System.Reflection.Assembly.GetExecutingAssembly().Location),
                 "sample.c");
 
+        // ── Режим компиляции: false = ЦП (векторная графика, 4 цвета),
+        //    true = Game (320x264, связка ЦП+ПП, спрайтовая графика, 8 цветов) ──
+        private bool _gameMode = false;
+
         // ── Меню «Настройки» ──────────────────────────────────────
         private void ShowSettingsMenu(Control anchor)
         {
@@ -1571,7 +1576,43 @@ namespace CompMacro11
                 SetStatus(miOpt.Checked ? "✓  Оптимизация включена" : "○  Оптимизация выключена", false);
             };
 
+            // ── Режим компиляции: ЦП / Game — iOS-переключатель в меню ──
+            var modePanel = new Panel
+            {
+                Size = new Size(230, 34),
+                BackColor = Color.FromArgb(45, 45, 48)
+            };
+            var lblMode = new Label
+            {
+                Text = "Режим компиляции:",
+                Location = new Point(6, 9),
+                AutoSize = true,
+                ForeColor = Color.White,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 9f)
+            };
+            modePanel.Controls.Add(lblMode);
+            var sw = new ModeSwitch { Location = new Point(126, 4) };
+            sw.SetState(_gameMode);                 // показать текущий режим
+            sw.Toggled += g =>
+            {
+                _gameMode = g;
+                SetStatus(g
+                    ? "✓  Режим Game: 320x264, спрайты, ЦП+ПП (8 цветов)"
+                    : "✓  Режим ЦП: векторная графика, 4 цвета", false);
+            };
+            modePanel.Controls.Add(sw);
+            var host = new ToolStripControlHost(modePanel)
+            {
+                AutoSize = false,
+                Size = modePanel.Size,
+                Padding = Padding.Empty,
+                Margin = new Padding(0, 2, 0, 2)
+            };
+
             menu.Items.Add(miOpt);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(host);
             menu.Show(anchor, new System.Drawing.Point(0, anchor.Height));
         }
 
@@ -1850,6 +1891,86 @@ int main(void) {
             Text = _project != null
                 ? "Mini-C → Macro-11  |  " + _project.Name
                 : "Mini-C → Macro-11";
+        }
+    }
+
+    // ── Переключатель режима ЦП/Game в стиле iOS (капсула с ползунком) ──
+    internal class ModeSwitch : Control
+    {
+        public bool IsGame { get; private set; }
+        public event Action<bool> Toggled;
+        private float _pos = 0f;                    // 0 = ЦП, 1 = Game
+        private readonly Timer _anim = new Timer { Interval = 15 };
+
+        public ModeSwitch()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
+                     ControlStyles.OptimizedDoubleBuffer, true);
+            Size = new Size(104, 26);
+            Cursor = Cursors.Hand;
+            _anim.Tick += (s, e) =>
+            {
+                float target = IsGame ? 1f : 0f;
+                _pos += (target - _pos) * 0.35f;    // плавное приближение
+                if (Math.Abs(target - _pos) < 0.02f) { _pos = target; _anim.Stop(); }
+                Invalidate();
+            };
+        }
+
+        // Установить состояние без анимации (при открытии меню)
+        public void SetState(bool game)
+        {
+            IsGame = game;
+            _pos = game ? 1f : 0f;
+            Invalidate();
+        }
+
+        protected override void OnClick(EventArgs e)
+        {
+            base.OnClick(e);
+            IsGame = !IsGame;
+            _anim.Start();
+            Toggled?.Invoke(IsGame);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            int w = Width - 1, h = Height - 1;
+            // цвет капсулы: синий (ЦП) → зелёный (Game), интерполяция по позиции
+            var c1 = Color.FromArgb(58, 110, 165);
+            var c2 = Color.FromArgb(46, 160, 90);
+            var cap = Color.FromArgb(
+                (int)(c1.R + (c2.R - c1.R) * _pos),
+                (int)(c1.G + (c2.G - c1.G) * _pos),
+                (int)(c1.B + (c2.B - c1.B) * _pos));
+
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                int r = h;                          // диаметр скругления = высота
+                path.AddArc(0, 0, r, r, 90, 180);
+                path.AddArc(w - r, 0, r, r, 270, 180);
+                path.CloseFigure();
+                using (var br = new SolidBrush(cap)) g.FillPath(br, path);
+            }
+
+            // подпись режима — на стороне, свободной от ползунка
+            string txt = IsGame ? "Game" : "ЦП";
+            var f = new Font("Segoe UI", 9f, FontStyle.Bold);
+            var rect = IsGame
+                ? new Rectangle(6, 0, w - h - 6, h + 1)          // слева от ползунка
+                : new Rectangle(h, 0, w - h - 6, h + 1);         // справа от ползунка
+            TextRenderer.DrawText(g, txt, f, rect, Color.White,
+                TextFormatFlags.VerticalCenter |
+                (IsGame ? TextFormatFlags.Left : TextFormatFlags.Right));
+
+            // ползунок — белый круг с лёгкой тенью
+            float kd = h - 6;
+            float kx = 3 + _pos * (w - h);
+            using (var sh = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                g.FillEllipse(sh, kx + 1, 4.5f, kd, kd);
+            g.FillEllipse(Brushes.White, kx, 3, kd, kd);
         }
     }
 }

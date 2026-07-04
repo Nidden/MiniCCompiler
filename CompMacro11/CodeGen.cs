@@ -25,6 +25,24 @@ namespace CompMacro11
     /// </summary>
     public partial class CodeGen
     {
+        // ── Режим рантайма: ЦП (векторная графика, 4 цвета, 4 режима)
+        //    или Game (320x264, связка ЦП+ПП, только спрайтовая графика) ──
+        public enum RtMode { Cpu, Game }
+        public RtMode Mode = RtMode.Cpu;
+
+        // Функции, недоступные в режиме Game (ЦП-векторная графика):
+        static readonly System.Collections.Generic.HashSet<string> GameForbidden =
+            new System.Collections.Generic.HashSet<string> {
+                "sin256","cos256","line","circle","box","rect","fill_rect",
+                "point","fill_dither"
+            };
+        // Функции, недоступные в режиме ЦП (всё ПП-шное):
+        static readonly System.Collections.Generic.HashSet<string> CpuForbidden =
+            new System.Collections.Generic.HashSet<string> {
+                "ppu_init","pp_init","pp_point","pp_line","pp_sprite","pp_stop",
+                "pp_spr","pp_blit","vpoke","pp_peek","vload","pp_vspr"
+            };
+
         private StringBuilder _out;
         private int _labelCnt;
         private Dictionary<string, FuncInfo> _funcs;
@@ -91,7 +109,8 @@ namespace CompMacro11
             "waitkey", "getkey",
             "point", "line", "rect", "fill_rect", "fill_dither", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setPlaceColor", "setCursorColor",
             "vsync", "sin256", "cos256", "abs", "min", "max", "clamp",
-            "ppu_init", "pp_init", "pp_point", "pp_line", "pp_stop"
+            "ppu_init", "pp_init", "pp_point", "pp_line", "pp_sprite", "pp_stop",
+            "spr", "pp_spr", "pp_blit", "vpoke", "pp_peek", "vload", "pp_vspr"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -405,7 +424,7 @@ namespace CompMacro11
             // неиспользуемые функции (tree-shaking). Подменяем _out на время.
             var mainBuf = _out;
             _out = new StringBuilder();
-            EmitRuntime();
+            if (Mode == RtMode.Game) EmitRuntimeGame(); else EmitRuntimeCpu();
             string runtimeAsm = _out.ToString();
             _out = mainBuf;
 
@@ -2573,6 +2592,12 @@ namespace CompMacro11
         // ── Встроенные функции ────────────────────────────────────
         private void GenBuiltin(CallExpr c)
         {
+            // ── Контроль режима: явное разделение ЦП/Game ──
+            if (Mode == RtMode.Game && GameForbidden.Contains(c.FuncName))
+                throw new Exception($"Строка {c.Line}: функция {c.FuncName}() недоступна в режиме Game (только спрайтовая графика)");
+            if (Mode == RtMode.Cpu && CpuForbidden.Contains(c.FuncName))
+                throw new Exception($"Строка {c.Line}: функция {c.FuncName}() недоступна в режиме ЦП (включите режим Game)");
+
             // Все встроенные используют соглашение caller-cleans-up
             // с передачей аргументов через стек, кроме cls/init/pause.
             switch (c.FuncName)
@@ -2839,6 +2864,88 @@ namespace CompMacro11
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x0
                     EI("JSR", "PC, RTPPLN");
                     EI("ADD", "#10., SP");
+                    break;
+
+                case "pp_sprite":
+                    if (c.Args.Count != 5)
+                        throw new Exception($"Строка {c.Line}: pp_sprite(x,y,w,h,ptr) требует 5 аргументов");
+                    EC($"pp_sprite({ArgStr(c)}): 8-цветный спрайт на ПП");
+                    for (int i = 4; i >= 0; i--) { GenExpr(c.Args[i]); EI("MOV", "R0, -(SP)"); }
+                    EI("JSR", "PC, RTPPSP");
+                    EI("ADD", "#10., SP");
+                    break;
+
+                case "spr":
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: spr(x,y,ptr) требует 3 аргумента (формат с заголовком)");
+                    EC($"spr({ArgStr(c)}): спрайт с заголовком (ЦП, 4 цвета)");
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // ptr
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTSPRH");
+                    EI("ADD", "#6., SP");
+                    break;
+
+                case "pp_spr":
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: pp_spr(x,y,ptr) требует 3 аргумента (формат с заголовком)");
+                    EC($"pp_spr({ArgStr(c)}): спрайт с заголовком (ПП, 8 цветов)");
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // ptr
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTPPSH");
+                    EI("ADD", "#6., SP");
+                    break;
+
+                case "vpoke":
+                    if (c.Args.Count != 2)
+                        throw new Exception($"Строка {c.Line}: vpoke(addr,val) требует 2 аргумента");
+                    EC($"vpoke({ArgStr(c)}): слово в видеопамять через порт ЦП");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, @#176640");    // адрес
+                    GenExpr(c.Args[1]);
+                    EI("MOV", "R0, @#176642");    // данные (планы 1&2)
+                    break;
+
+                case "pp_peek":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: pp_peek(addr) требует 1 аргумент");
+                    EC($"pp_peek({ArgStr(c)}): ПП читает слово видеопамяти");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTPPPK");      // результат в R0
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "vload":
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: vload(vaddr,arr,nwords) требует 3 аргумента");
+                    EC($"vload({ArgStr(c)}): загрузка массива в общий блок видеопамяти");
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // nwords
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // ptr
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // vaddr
+                    EI("JSR", "PC, RTVLOAD");
+                    EI("ADD", "#6., SP");
+                    break;
+
+                case "pp_vspr":
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: pp_vspr(x,y,vaddr) требует 3 аргумента");
+                    EC($"pp_vspr({ArgStr(c)}): спрайт из общего блока (ПП-видеокарта)");
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // vaddr
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTPPVS");
+                    EI("ADD", "#6., SP");
+                    break;
+
+                case "pp_blit":
+                    if (c.Args.Count != 6)
+                        throw new Exception($"Строка {c.Line}: pp_blit(sx,sy,w,h,dx,dy) требует 6 аргументов");
+                    EC($"pp_blit({ArgStr(c)}): копия прямоугольника на ПП (3 плана)");
+                    for (int i = 5; i >= 0; i--) { GenExpr(c.Args[i]); EI("MOV", "R0, -(SP)"); }
+                    EI("JSR", "PC, RTPPBL");
+                    EI("ADD", "#12., SP");
                     break;
 
                 case "pp_stop":

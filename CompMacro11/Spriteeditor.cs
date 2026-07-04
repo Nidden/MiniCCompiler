@@ -13,7 +13,7 @@ namespace CompMacro11
         public int Words = 1;
         public int Height = 16;
         public int[] Pixels;
-        public int PalIdx = 0;
+        public int PalIdx = 0;      // 0=Набор1, 1=Набор2, 2=Ч/Б (4 цвета), 3=8 цветов (ПП)
 
         public int PixelWidth => Words * 8;
 
@@ -67,27 +67,50 @@ namespace CompMacro11
             int pw = PixelWidth;
             var wordList = new List<int>();
 
-            for (int y = 0; y < Height; y++)
-                for (int wx = 0; wx < Words; wx++)
-                {
-                    int plane0 = 0, plane1 = 0;
-                    for (int b = 0; b < 8; b++)
+            if (PalIdx == 3)
+            {
+                // Набор 8 цветов (ПП): 3 плана, 2 СЛОВА на октет.
+                //   слово 1 = план0 (для регистра ПП 177012)
+                //   слово 2 = планы 1&2 (младший байт=план1, старший=план2,
+                //             для регистра ПП 177014)
+                for (int y = 0; y < Height; y++)
+                    for (int wx = 0; wx < Words; wx++)
                     {
-                        int c = Pixels[y * pw + wx * 8 + b] & 3;
-                        // Цвета 0..3 → два бита: бит0=план0, бит1=план1
-                        // план0: цвета 0/1 (младший бит цвета)
-                        // план1: цвета 0/2 (старший бит цвета)
-                        if ((c & 1) != 0) plane0 |= (1 << b);
-                        if ((c & 2) != 0) plane1 |= (1 << b);
+                        int plane0 = 0, plane1 = 0, plane2 = 0;
+                        for (int b = 0; b < 8; b++)
+                        {
+                            int c = Pixels[y * pw + wx * 8 + b] & 7;
+                            if ((c & 1) != 0) plane0 |= (1 << b);
+                            if ((c & 2) != 0) plane1 |= (1 << b);
+                            if ((c & 4) != 0) plane2 |= (1 << b);
+                        }
+                        wordList.Add(plane0);                   // слово 1: план0
+                        wordList.Add(plane1 | (plane2 << 8));   // слово 2: планы1&2
                     }
-                    // Слово: младший байт = план0, старший байт = план1
-                    wordList.Add(plane0 | (plane1 << 8));
-                }
+            }
+            else
+            {
+                // Наборы 1,2,Ч/Б (ЦП): 4 цвета, 2 плана, 1 слово на октет.
+                for (int y = 0; y < Height; y++)
+                    for (int wx = 0; wx < Words; wx++)
+                    {
+                        int plane0 = 0, plane1 = 0;
+                        for (int b = 0; b < 8; b++)
+                        {
+                            int c = Pixels[y * pw + wx * 8 + b] & 3;
+                            if ((c & 1) != 0) plane0 |= (1 << b);
+                            if ((c & 2) != 0) plane1 |= (1 << b);
+                        }
+                        // Слово: младший байт = план0, старший байт = план1
+                        wordList.Add(plane0 | (plane1 << 8));
+                    }
+            }
 
             var sb = new StringBuilder();
-            // Комментарий с названием и размером
-            sb.AppendLine($"// {Name}  {pw}x{Height}");
-            sb.AppendLine($"int {Name}[{wordList.Count}] = {{");
+            sb.AppendLine($"// {Name}  {pw}x{Height}" + (PalIdx == 3 ? "  (8 цветов, ПП)" : ""));
+            sb.AppendLine($"// формат: [тип, words, height, данные] — универсальный (ЦП/ПП)");
+            sb.AppendLine($"int {Name}[{wordList.Count + 3}] = {{");
+            sb.AppendLine($"    {(PalIdx == 3 ? 1 : 0)}, {Words}, {Height},   // заголовок: тип({(PalIdx == 3 ? "8цв" : "4цв")}), ширина в словах, высота");
             for (int i = 0; i < wordList.Count; i += 8)
             {
                 sb.Append("    ");
@@ -97,7 +120,10 @@ namespace CompMacro11
                 sb.AppendLine();
             }
             sb.AppendLine("};");
-            sb.AppendLine($"// sprite(x, y, {Words}, {Height}, {Name});");
+            if (PalIdx == 3)
+                sb.AppendLine($"// pp_spr(x, y, {Name});");
+            else
+                sb.AppendLine($"// spr(x, y, {Name});");
             return sb.ToString();
         }
     }
@@ -109,7 +135,30 @@ namespace CompMacro11
             new[]{ Color.Blue,  Color.Magenta, Color.Cyan,   Color.White  },  // палитра 2 (0=синий,1=пурпурный,2=голубой,3=белый)
             new[]{ Color.Black, Color.FromArgb(85,85,85), Color.FromArgb(170,170,170), Color.White } // Ч/Б
         };
-        static readonly string[] PAL_NAMES = { "Набор 1", "Набор 2", "Ч/Б" };
+        static readonly string[] PAL_NAMES = { "Набор 1", "Набор 2", "Ч/Б", "8 цветов" };
+
+        // Цвет пикселя: набор 3 → 8-цветная PAL8, наборы 0-2 → 4-цветная PAL.
+        static Color PixColor(Sprite s, int idx)
+        {
+            if (s.PalIdx == 3) return PAL8[idx & 7];
+            return PAL[s.PalIdx][idx & 3];
+        }
+        // Число цветов: набор 3 → 8, остальные → 4.
+        static int NumColors(Sprite s) => s.PalIdx == 3 ? 8 : 4;
+
+        // 8-цветная палитра ПП — соответствует РЕАЛЬНОЙ палитре железа УКНЦ.
+        // Биты планов: план0(1)=синий, план1(2)=зелёный, план2(4)=красный.
+        // (проверено на эмуляторе: редактор показывает те же цвета, что и ПП)
+        static readonly Color[] PAL8 = {
+            Color.Black,                    // 0 = 000
+            Color.Blue,                     // 1 = 001 (план0=синий)
+            Color.Green,                    // 2 = 010 (план1=зелёный)
+            Color.Cyan,                     // 3 = 011 (синий+зелёный)
+            Color.Red,                      // 4 = 100 (план2=красный)
+            Color.Magenta,                  // 5 = 101 (синий+красный)
+            Color.Yellow,                   // 6 = 110 (зелёный+красный)
+            Color.White                     // 7 = 111
+        };
 
         static readonly Color C_BG = Color.FromArgb(28, 28, 28);
         static readonly Color C_BG2 = Color.FromArgb(37, 37, 38);
@@ -127,6 +176,21 @@ namespace CompMacro11
         int _zoom = 8;
         bool _drawing = false;
         bool _busy = false;
+        // Инструменты рисования
+        enum Tool { Pencil, Line, Rect, RectFill, Ellipse, Fill, Picker }
+        Tool _tool = Tool.Pencil;
+        int _startX = -1, _startY = -1;     // начало фигуры (drag)
+        int _curX = -1, _curY = -1;         // текущая позиция (предпросмотр)
+        bool _mirror = false;               // изюм: зеркальное рисование (симметрия H)
+        bool _onion = false;                // изюм: луковичная кожа (предыдущий спрайт)
+        Button[] _toolBtns;
+        Button _mirrorBtn, _onionBtn;
+        Panel _funcBar;                 // полоса функций выбранной категории
+        Button[] _catBtns;              // кнопки категорий (левый столбец)
+        int _curCat = 0;
+        // Категории тулбара (вертикальный столбец слева)
+        static readonly string[] CAT_NAMES = { "Файл", "Инструмент", "Помощники", "Преобразования", "Сдвиг", "Экспорт" };
+        static readonly string[] CAT_ICONS = { "📁", "✏", "✨", "⟳", "✛", "→" };
 
         Action<string> _insertCode;
 
@@ -136,8 +200,8 @@ namespace CompMacro11
         Label _sprNameLbl;
         ComboBox _selW;
         NumericUpDown _inpH;
-        Button[] _palBtns = new Button[3];
-        Panel[] _swatches = new Panel[4];
+        Button[] _palBtns = new Button[4];
+        Panel[] _swatches = new Panel[8];
 
         // Автосохранение
         // Путь к файлу спрайтов — задаётся при открытии редактора
@@ -198,30 +262,33 @@ namespace CompMacro11
             BackColor = C_BG;
             Font = F_UI;
 
-            // ── Тулбар ──────────────────────────────────────────
-            var bar = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = C_BG2 };
-            int bx = 8;
-            TBtn(bar, "+ Новый", ref bx, C_BG3, () => NewSprite());
-            TBtn(bar, "✎ Имя", ref bx, C_BG3, () => RenameCurrent());
-            TBtn(bar, "📂 Открыть", ref bx, C_BG3, () => OpenFile());
-            TBtn(bar, "🖼 Импорт", ref bx, C_BG3, () => ImportImage());
-            TBtn(bar, "💾 Сохранить", ref bx, C_BG3, () => SaveFile());
-            TBtnSep(bar, ref bx);
-            TBtn(bar, "✕ Удалить", ref bx, Color.FromArgb(70, 25, 25), () => DeleteSprite());
-            TBtnSep(bar, ref bx);
-            // ── Операции редактирования ──
-            TBtn(bar, "↶ Отмена", ref bx, C_BG3, () => Undo(), 78);
-            TBtn(bar, "🗑 Очистить", ref bx, C_BG3, () => EditClear());
-            TBtn(bar, "▦ Залить", ref bx, C_BG3, () => EditFill());
-            TBtn(bar, "◐ Инверт", ref bx, C_BG3, () => EditInvert());
-            TBtn(bar, "↔", ref bx, C_BG3, () => EditFlipH(), 36);
-            TBtn(bar, "↕", ref bx, C_BG3, () => EditFlipV(), 36);
-            TBtn(bar, "←", ref bx, C_BG3, () => EditShift(-1, 0), 32);
-            TBtn(bar, "→", ref bx, C_BG3, () => EditShift(1, 0), 32);
-            TBtn(bar, "↑", ref bx, C_BG3, () => EditShift(0, -1), 32);
-            TBtn(bar, "↓", ref bx, C_BG3, () => EditShift(0, 1), 32);
-            TBtnSep(bar, ref bx);
-            TBtn(bar, "→ В код", ref bx, Color.FromArgb(0, 80, 50), () => ExportCode());
+            // ── Полоса функций выбранной категории (Top) ──
+            _funcBar = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = C_BG2 };
+            _toolBtns = new Button[7];
+
+            // ── Узкий столбец категорий (Left) ──
+            var catBar = new Panel { Dock = DockStyle.Left, Width = 52, BackColor = C_BG };
+            _catBtns = new Button[CAT_NAMES.Length];
+            for (int i = 0; i < CAT_NAMES.Length; i++)
+            {
+                int ii = i;
+                _catBtns[i] = new Button
+                {
+                    Text = CAT_ICONS[i],
+                    Location = new Point(4, 6 + i * 50),
+                    Width = 44,
+                    Height = 44,
+                    FlatStyle = FlatStyle.Flat,
+                    BackColor = i == 0 ? C_SEL : C_BG3,
+                    ForeColor = Color.White,
+                    Font = new Font("Segoe UI", 14f),
+                    Cursor = Cursors.Hand
+                };
+                _catBtns[i].FlatAppearance.BorderSize = 0;
+                _catBtns[i].Click += (s, e) => SelectCategory(ii);
+                _tt.SetToolTip(_catBtns[i], CAT_NAMES[i]);
+                catBar.Controls.Add(_catBtns[i]);
+            }
 
 
             // ── Нижняя панель ────────────────────────────────────
@@ -293,14 +360,14 @@ namespace CompMacro11
             // Палитра
             VSep(bot, 334, 4);
             MiniLabel(bot, "Палитра:", 342, 6);
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < 4; i++)
             {
                 int ii = i;
                 _palBtns[i] = new Button
                 {
                     Text = PAL_NAMES[i],
-                    Location = new Point(342 + i * 74, 22),
-                    Width = 70,
+                    Location = new Point(342 + i * 60, 22),
+                    Width = 56,
                     Height = 22,
                     FlatStyle = FlatStyle.Flat,
                     BackColor = ii == 0 ? C_SEL : C_BG3,
@@ -311,28 +378,28 @@ namespace CompMacro11
                 _palBtns[i].FlatAppearance.BorderSize = 0;
                 _palBtns[i].Click += (s, e) => {
                     _sprites[_cur].PalIdx = ii;
-                    UpdatePal(); DrawCanvas(); RefreshThumbs();
+                    UpdatePal(); UpdateSwatches(); DrawCanvas(); RefreshThumbs();
                 };
                 bot.Controls.Add(_palBtns[i]);
             }
 
-            // Свотчи
-            VSep(bot, 564, 4);
-            MiniLabel(bot, "Цвет:", 572, 6);
-            for (int i = 0; i < 4; i++)
+            // Свотчи (до 8 — для режима ПП; в режиме ЦП видны первые 4)
+            VSep(bot, 584, 4);
+            MiniLabel(bot, "Цвет:", 592, 6);
+            for (int i = 0; i < 8; i++)
             {
                 int ii = i;
                 _swatches[i] = new Panel
                 {
-                    Location = new Point(572 + i * 34, 22),
-                    Width = 28,
-                    Height = 28,
+                    Location = new Point(592 + i * 30, 22),
+                    Width = 26,
+                    Height = 26,
                     Cursor = Cursors.Hand
                 };
                 _swatches[i].Click += (s, e) => { _colorIdx = ii; UpdateSwatches(); };
                 _swatches[i].Paint += (s, e) => {
                     if (ii == _colorIdx)
-                        e.Graphics.DrawRectangle(new Pen(Color.White, 2), 1, 1, 24, 24);
+                        e.Graphics.DrawRectangle(new Pen(Color.White, 2), 1, 1, 22, 22);
                 };
                 bot.Controls.Add(_swatches[i]);
             }
@@ -364,26 +431,31 @@ namespace CompMacro11
             // ── Центр: холст ──────────────────────────────────────
             var wrap = new Panel { Dock = DockStyle.Fill, BackColor = C_BG3, AutoScroll = true };
             _pic = new PictureBox { Location = new Point(8, 8), SizeMode = PictureBoxSizeMode.AutoSize, Cursor = Cursors.Cross };
-            _pic.MouseDown += (s, e) => { PushUndo(); _drawing = true; PaintPixel(e.X, e.Y); };
-            _pic.MouseMove += (s, e) => { if (_drawing) PaintPixel(e.X, e.Y); };
-            _pic.MouseUp += (s, e) => _drawing = false;
+            _pic.MouseDown += (s, e) => OnCanvasDown(e.X, e.Y);
+            _pic.MouseMove += (s, e) => OnCanvasMove(e.X, e.Y);
+            _pic.MouseUp += (s, e) => OnCanvasUp(e.X, e.Y);
             wrap.Controls.Add(_pic);
 
             // ── Порядок добавления важен для WinForms Dock ────────
-            // Top и Bottom — первыми, затем Left, затем Fill последним
+            // Fill последний; Left-панели в порядке от центра к краю;
+            // Top/Bottom первыми по доку.
             Controls.Add(wrap);       // Fill — самый последний
-            Controls.Add(leftPanel);  // Left — перед Fill
+            Controls.Add(leftPanel);  // Left — миниатюры (ближе к центру)
+            Controls.Add(catBar);     // Left — столбец категорий (крайний слева)
             Controls.Add(bot);        // Bottom
-            Controls.Add(bar);        // Top
+            Controls.Add(_funcBar);   // Top — функции выбранной категории
+
+            SelectCategory(0);        // показать первую категорию
         }
 
         // ── Хелперы UI ───────────────────────────────────────────
-        void TBtn(Panel p, string t, ref int x, Color bg, Action click, int w = 82)
+        ToolTip _tt = new ToolTip();
+        Button TBtn(Panel p, string t, ref int x, Color bg, Action click, int w = 82, string tip = null)
         {
             var b = new Button
             {
                 Text = t,
-                Location = new Point(x, 5),
+                Location = new Point(x, 22),
                 Width = w,
                 Height = 30,
                 FlatStyle = FlatStyle.Flat,
@@ -394,12 +466,27 @@ namespace CompMacro11
             };
             b.FlatAppearance.BorderSize = 0;
             b.Click += (s, e) => click();
+            if (tip != null) _tt.SetToolTip(b, tip);
             p.Controls.Add(b); x += w + 4;
+            return b;
         }
         void TBtnSep(Panel p, ref int x)
         {
-            p.Controls.Add(new Panel { Location = new Point(x, 8), Width = 1, Height = 24, BackColor = C_GRAY });
+            p.Controls.Add(new Panel { Location = new Point(x, 24), Width = 1, Height = 26, BackColor = C_GRAY });
             x += 9;
+        }
+        // Подпись группы тулбара (над кнопками). Запоминает x начала группы.
+        void GroupLabel(Panel p, string title, int x)
+        {
+            p.Controls.Add(new Label
+            {
+                Text = title,
+                Location = new Point(x, 5),
+                AutoSize = true,
+                ForeColor = C_GRAY,
+                Font = F_SMALL,
+                BackColor = Color.Transparent
+            });
         }
         void SmallBtn(Panel p, string t, int x, int y, int w, Action click)
         {
@@ -483,7 +570,184 @@ namespace CompMacro11
             if (_sprites.Count == 0) return;
             PushUndo();
             var s = _sprites[_cur];
-            for (int i = 0; i < s.Pixels.Length; i++) s.Pixels[i] = 3 - s.Pixels[i];
+            int max = NumColors(s) - 1;
+            for (int i = 0; i < s.Pixels.Length; i++) s.Pixels[i] = max - s.Pixels[i];
+            FullRefresh();
+        }
+
+        // ── Выбор категории (левый столбец) ──
+        void SelectCategory(int cat)
+        {
+            _curCat = cat;
+            for (int i = 0; i < _catBtns.Length; i++)
+                _catBtns[i].BackColor = (i == cat) ? C_SEL : C_BG3;
+            BuildFuncBar();
+        }
+
+        // Построить полосу функций для текущей категории.
+        void BuildFuncBar()
+        {
+            _funcBar.Controls.Clear();
+            int x = 8;
+            switch (_curCat)
+            {
+                case 0: // Файл
+                    FBtn("+ Новый", ref x, C_BG3, () => NewSprite());
+                    FBtn("✎ Имя", ref x, C_BG3, () => RenameCurrent());
+                    FBtn("📂 Открыть", ref x, C_BG3, () => OpenFile());
+                    FBtn("🖼 Импорт", ref x, C_BG3, () => ImportImage());
+                    FBtn("💾 Сохранить", ref x, C_BG3, () => SaveFile());
+                    FBtn("✕ Удалить", ref x, Color.FromArgb(70, 25, 25), () => DeleteSprite());
+                    break;
+                case 1: // Инструмент
+                    _toolBtns[0] = FBtn("✏ Карандаш", ref x, C_BG3, () => SetTool(Tool.Pencil), 96);
+                    _toolBtns[1] = FBtn("╱ Линия", ref x, C_BG3, () => SetTool(Tool.Line), 76);
+                    _toolBtns[2] = FBtn("▭ Прямоуг", ref x, C_BG3, () => SetTool(Tool.Rect), 86);
+                    _toolBtns[3] = FBtn("▬ Залитый", ref x, C_BG3, () => SetTool(Tool.RectFill), 86);
+                    _toolBtns[4] = FBtn("◯ Эллипс", ref x, C_BG3, () => SetTool(Tool.Ellipse), 84);
+                    _toolBtns[5] = FBtn("▨ Заливка", ref x, C_BG3, () => SetTool(Tool.Fill), 86);
+                    _toolBtns[6] = FBtn("✒ Пипетка", ref x, C_BG3, () => SetTool(Tool.Picker), 86);
+                    HighlightTool();
+                    break;
+                case 2: // Помощники
+                    _mirrorBtn = FBtn("⊥ Зеркало", ref x, _mirror ? C_SEL : C_BG3, () => ToggleMirror(), 96);
+                    _onionBtn = FBtn("◓ Калька", ref x, _onion ? C_SEL : C_BG3, () => ToggleOnion(), 92);
+                    break;
+                case 3: // Преобразования
+                    FBtn("↶ Отмена", ref x, C_BG3, () => Undo(), 86);
+                    FBtn("🗑 Очистить", ref x, C_BG3, () => EditClear(), 96);
+                    FBtn("▦ Залить", ref x, C_BG3, () => EditFill(), 84);
+                    FBtn("◐ Инверт", ref x, C_BG3, () => EditInvert(), 84);
+                    FBtn("⟳ Поворот", ref x, C_BG3, () => EditRotate(), 92);
+                    FBtn("▣ Контур", ref x, C_BG3, () => EditOutline(), 84);
+                    FBtn("⇆ Симметрия", ref x, C_BG3, () => EditSymmetry(), 104);
+                    FBtn("↔ ФлипГ", ref x, C_BG3, () => EditFlipH(), 78);
+                    FBtn("↕ ФлипВ", ref x, C_BG3, () => EditFlipV(), 78);
+                    break;
+                case 4: // Сдвиг
+                    FBtn("← Влево", ref x, C_BG3, () => EditShift(-1, 0), 78);
+                    FBtn("→ Вправо", ref x, C_BG3, () => EditShift(1, 0), 84);
+                    FBtn("↑ Вверх", ref x, C_BG3, () => EditShift(0, -1), 80);
+                    FBtn("↓ Вниз", ref x, C_BG3, () => EditShift(0, 1), 74);
+                    break;
+                case 5: // Экспорт
+                    FBtn("→ В код", ref x, Color.FromArgb(0, 80, 50), () => ExportCode(), 100);
+                    break;
+            }
+        }
+
+        // Кнопка в полосе функций (выровнена по вертикали в _funcBar).
+        Button FBtn(string t, ref int x, Color bg, Action click, int w = 82)
+        {
+            var b = new Button
+            {
+                Text = t,
+                Location = new Point(x, 5),
+                Width = w,
+                Height = 30,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = bg,
+                ForeColor = Color.White,
+                Font = F_UI,
+                Cursor = Cursors.Hand
+            };
+            b.FlatAppearance.BorderSize = 0;
+            b.Click += (s, e) => click();
+            _funcBar.Controls.Add(b); x += w + 4;
+            return b;
+        }
+
+        // Подсветить активный инструмент (если категория Инструмент открыта).
+        void HighlightTool()
+        {
+            if (_curCat != 1 || _toolBtns == null) return;
+            for (int i = 0; i < _toolBtns.Length; i++)
+                if (_toolBtns[i] != null)
+                    _toolBtns[i].BackColor = ((int)_tool == i) ? C_SEL : C_BG3;
+        }
+
+        // ── Выбор инструмента ──
+        void SetTool(Tool t)
+        {
+            _tool = t;
+            HighlightTool();
+        }
+
+        // ── Изюм: зеркальное рисование ──
+        void ToggleMirror()
+        {
+            _mirror = !_mirror;
+            if (_mirrorBtn != null) _mirrorBtn.BackColor = _mirror ? C_SEL : C_BG3;
+            DrawCanvas();
+        }
+
+        // ── Изюм: луковичная кожа ──
+        void ToggleOnion()
+        {
+            _onion = !_onion;
+            if (_onionBtn != null) _onionBtn.BackColor = _onion ? C_SEL : C_BG3;
+            DrawCanvas();
+        }
+
+        // Поворот на 90° по часовой (квадратная область; для прямоуг. — обрезка).
+        void EditRotate()
+        {
+            if (_sprites.Count == 0) return;
+            PushUndo();
+            var s = _sprites[_cur];
+            int w = s.PixelWidth, h = s.Height;
+            var np = new int[w * h];
+            // поворот по часовой в исходную решётку (центр сохраняется, края обрезаются)
+            int cx = w / 2, cy = h / 2;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    // (x,y) ← из исходной (sx,sy): поворот на -90
+                    int rx = x - cx, ry = y - cy;
+                    int sx = cx + ry, sy = cy - rx;
+                    if (sx >= 0 && sy >= 0 && sx < w && sy < h)
+                        np[y * w + x] = s.Pixels[sy * w + sx];
+                }
+            s.Pixels = np;
+            FullRefresh();
+        }
+
+        // Контур: обвести непустые пиксели текущим цветом (по пустым соседям).
+        void EditOutline()
+        {
+            if (_sprites.Count == 0) return;
+            PushUndo();
+            var s = _sprites[_cur];
+            int w = s.PixelWidth, h = s.Height;
+            var add = new List<int>();
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    if (s.Pixels[y * w + x] != 0) continue;     // только пустые
+                    bool near = false;
+                    for (int dy = -1; dy <= 1 && !near; dy++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int nx = x + dx, ny = y + dy;
+                            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                            if (s.Pixels[ny * w + nx] != 0 && (dx == 0 || dy == 0)) { near = true; break; }
+                        }
+                    if (near) add.Add(y * w + x);
+                }
+            foreach (int i in add) s.Pixels[i] = _colorIdx;
+            FullRefresh();
+        }
+
+        // Симметрия: отзеркалить ЛЕВУЮ половину в правую (мгновенно симметричный спрайт).
+        void EditSymmetry()
+        {
+            if (_sprites.Count == 0) return;
+            PushUndo();
+            var s = _sprites[_cur];
+            int w = s.PixelWidth, h = s.Height;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w / 2; x++)
+                    s.Pixels[y * w + (w - 1 - x)] = s.Pixels[y * w + x];
             FullRefresh();
         }
 
@@ -618,10 +882,174 @@ namespace CompMacro11
             int pw = s.PixelWidth;
             int px = mx / _zoom, py = my / _zoom;
             if (px < 0 || py < 0 || px >= pw || py >= s.Height) return;
-            if (s.Pixels[py * pw + px] == _colorIdx) return;
-            s.Pixels[py * pw + px] = _colorIdx;
+            SetPix(s, px, py, _colorIdx);
             DrawCanvas(); RefreshThumb(_cur);
             ScheduleSave();
+        }
+
+        // Поставить пиксель + зеркальное дублирование, если включён _mirror.
+        void SetPix(Sprite s, int px, int py, int col)
+        {
+            int pw = s.PixelWidth;
+            if (px < 0 || py < 0 || px >= pw || py >= s.Height) return;
+            s.Pixels[py * pw + px] = col;
+            if (_mirror)
+            {
+                int mx2 = pw - 1 - px;
+                if (mx2 >= 0 && mx2 < pw) s.Pixels[py * pw + mx2] = col;
+            }
+        }
+
+        // ── Обработка холста по инструментам ─────────────────────
+        void OnCanvasDown(int mx, int my)
+        {
+            var s = _sprites[_cur];
+            int px = mx / _zoom, py = my / _zoom;
+            if (px < 0 || py < 0 || px >= s.PixelWidth || py >= s.Height) return;
+
+            if (_tool == Tool.Picker)
+            {
+                _colorIdx = s.Pixels[py * s.PixelWidth + px] & (NumColors(s) - 1);
+                UpdateSwatches();
+                return;
+            }
+            if (_tool == Tool.Fill)
+            {
+                PushUndo();
+                FloodFill(s, px, py, _colorIdx);
+                DrawCanvas(); RefreshThumb(_cur); ScheduleSave();
+                return;
+            }
+            PushUndo();
+            _drawing = true;
+            _startX = px; _startY = py; _curX = px; _curY = py;
+            if (_tool == Tool.Pencil)
+            {
+                SetPix(s, px, py, _colorIdx);
+                DrawCanvas(); RefreshThumb(_cur);
+            }
+            else DrawCanvas(); // предпросмотр фигуры
+        }
+
+        void OnCanvasMove(int mx, int my)
+        {
+            if (!_drawing) return;
+            var s = _sprites[_cur];
+            int px = mx / _zoom, py = my / _zoom;
+            _curX = px; _curY = py;
+            if (_tool == Tool.Pencil)
+            {
+                SetPix(s, px, py, _colorIdx);
+                DrawCanvas(); RefreshThumb(_cur);
+            }
+            else DrawCanvas(); // перерисовать с предпросмотром
+        }
+
+        void OnCanvasUp(int mx, int my)
+        {
+            if (!_drawing) return;
+            _drawing = false;
+            var s = _sprites[_cur];
+            int px = mx / _zoom, py = my / _zoom;
+            _curX = px; _curY = py;
+            // зафиксировать фигуру
+            switch (_tool)
+            {
+                case Tool.Line: StampLine(s, _startX, _startY, px, py, _colorIdx); break;
+                case Tool.Rect: StampRect(s, _startX, _startY, px, py, _colorIdx, false); break;
+                case Tool.RectFill: StampRect(s, _startX, _startY, px, py, _colorIdx, true); break;
+                case Tool.Ellipse: StampEllipse(s, _startX, _startY, px, py, _colorIdx); break;
+            }
+            _startX = _startY = _curX = _curY = -1;
+            DrawCanvas(); RefreshThumb(_cur); ScheduleSave();
+        }
+
+        // ── Растеризация фигур ───────────────────────────────────
+        void StampLine(Sprite s, int x0, int y0, int x1, int y1, int col)
+        {
+            int dx = Math.Abs(x1 - x0), dy = Math.Abs(y1 - y0);
+            int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+            int err = dx - dy;
+            while (true)
+            {
+                SetPix(s, x0, y0, col);
+                if (x0 == x1 && y0 == y1) break;
+                int e2 = err * 2;
+                if (e2 > -dy) { err -= dy; x0 += sx; }
+                if (e2 < dx) { err += dx; y0 += sy; }
+            }
+        }
+
+        void StampRect(Sprite s, int x0, int y0, int x1, int y1, int col, bool fill)
+        {
+            int xa = Math.Min(x0, x1), xb = Math.Max(x0, x1);
+            int ya = Math.Min(y0, y1), yb = Math.Max(y0, y1);
+            if (fill)
+            {
+                for (int y = ya; y <= yb; y++)
+                    for (int x = xa; x <= xb; x++) SetPix(s, x, y, col);
+            }
+            else
+            {
+                for (int x = xa; x <= xb; x++) { SetPix(s, x, ya, col); SetPix(s, x, yb, col); }
+                for (int y = ya; y <= yb; y++) { SetPix(s, xa, y, col); SetPix(s, xb, y, col); }
+            }
+        }
+
+        void StampEllipse(Sprite s, int x0, int y0, int x1, int y1, int col)
+        {
+            // эллипс по двум углам (midpoint algorithm)
+            int xa = Math.Min(x0, x1), xb = Math.Max(x0, x1);
+            int ya = Math.Min(y0, y1), yb = Math.Max(y0, y1);
+            int a = (xb - xa) / 2, b = (yb - ya) / 2;
+            int cx = xa + a, cy = ya + b;
+            if (a == 0 || b == 0) { StampLine(s, xa, ya, xb, yb, col); return; }
+            long a2 = (long)a * a, b2 = (long)b * b;
+            long x = 0, y = b;
+            long sigma = 2 * b2 + a2 * (1 - 2 * b);
+            while (b2 * x <= a2 * y)
+            {
+                SetPix(s, (int)(cx + x), (int)(cy + y), col);
+                SetPix(s, (int)(cx - x), (int)(cy + y), col);
+                SetPix(s, (int)(cx + x), (int)(cy - y), col);
+                SetPix(s, (int)(cx - x), (int)(cy - y), col);
+                if (sigma >= 0) { sigma += 4 * a2 * (1 - y); y--; }
+                sigma += b2 * (4 * x + 6);
+                x++;
+            }
+            x = a; y = 0;
+            sigma = 2 * a2 + b2 * (1 - 2 * a);
+            while (a2 * y <= b2 * x)
+            {
+                SetPix(s, (int)(cx + x), (int)(cy + y), col);
+                SetPix(s, (int)(cx - x), (int)(cy + y), col);
+                SetPix(s, (int)(cx + x), (int)(cy - y), col);
+                SetPix(s, (int)(cx - x), (int)(cy - y), col);
+                if (sigma >= 0) { sigma += 4 * b2 * (1 - x); x--; }
+                sigma += a2 * (4 * y + 6);
+                y++;
+            }
+        }
+
+        // Заливка связной области (flood fill, 4-связность)
+        void FloodFill(Sprite s, int px, int py, int col)
+        {
+            int pw = s.PixelWidth, ph = s.Height;
+            int target = s.Pixels[py * pw + px];
+            if (target == col) return;
+            var stack = new Stack<Point>();
+            stack.Push(new Point(px, py));
+            while (stack.Count > 0)
+            {
+                var p = stack.Pop();
+                if (p.X < 0 || p.Y < 0 || p.X >= pw || p.Y >= ph) continue;
+                if (s.Pixels[p.Y * pw + p.X] != target) continue;
+                s.Pixels[p.Y * pw + p.X] = col;
+                stack.Push(new Point(p.X + 1, p.Y));
+                stack.Push(new Point(p.X - 1, p.Y));
+                stack.Push(new Point(p.X, p.Y + 1));
+                stack.Push(new Point(p.X, p.Y - 1));
+            }
         }
 
         // ── Отрисовка холста ─────────────────────────────────────
@@ -635,10 +1063,25 @@ namespace CompMacro11
             {
                 g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
                 g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+                // Изюм: луковичная кожа — предыдущий спрайт полупрозрачно под текущим
+                if (_onion && _cur > 0)
+                {
+                    var prev = _sprites[_cur - 1];
+                    int ppw = prev.PixelWidth;
+                    for (int y = 0; y < prev.Height && y < ph; y++)
+                        for (int x = 0; x < ppw && x < pw; x++)
+                        {
+                            int ci = prev.Pixels[y * ppw + x];
+                            if (ci == 0) continue;
+                            var bc = PixColor(prev, ci);
+                            using (var br = new SolidBrush(Color.FromArgb(70, bc)))
+                                g.FillRectangle(br, x * _zoom, y * _zoom, _zoom, _zoom);
+                        }
+                }
                 for (int y = 0; y < ph; y++)
                     for (int x = 0; x < pw; x++)
                     {
-                        var c = PAL[s.PalIdx][s.Pixels[y * pw + x] % 4];
+                        var c = PixColor(s, s.Pixels[y * pw + x]);
                         using (var br = new SolidBrush(c))
                             g.FillRectangle(br, x * _zoom, y * _zoom, _zoom, _zoom);
                     }
@@ -656,6 +1099,33 @@ namespace CompMacro11
                         for (int x = 0; x <= pw; x += 8) g.DrawLine(pen, x * _zoom, 0, x * _zoom, bh);
                         for (int y = 0; y <= ph; y += 8) g.DrawLine(pen, 0, y * _zoom, bw, y * _zoom);
                     }
+                // Ось зеркала (изюм: зеркальное рисование)
+                if (_mirror)
+                    using (var pen = new Pen(Color.FromArgb(160, 255, 90, 90), 1))
+                    {
+                        float mxp = (pw / 2f) * _zoom;
+                        g.DrawLine(pen, mxp, 0, mxp, bh);
+                    }
+                // Предпросмотр фигуры при перетаскивании
+                if (_drawing && _tool != Tool.Pencil && _startX >= 0 && _curX >= 0)
+                {
+                    var prev = new bool[pw * ph];
+                    var tmp = new Sprite("", s.Words, s.Height);
+                    Array.Copy(s.Pixels, tmp.Pixels, s.Pixels.Length);
+                    bool om = _mirror;
+                    switch (_tool)
+                    {
+                        case Tool.Line: StampLine(tmp, _startX, _startY, _curX, _curY, _colorIdx); break;
+                        case Tool.Rect: StampRect(tmp, _startX, _startY, _curX, _curY, _colorIdx, false); break;
+                        case Tool.RectFill: StampRect(tmp, _startX, _startY, _curX, _curY, _colorIdx, true); break;
+                        case Tool.Ellipse: StampEllipse(tmp, _startX, _startY, _curX, _curY, _colorIdx); break;
+                    }
+                    for (int y = 0; y < ph; y++)
+                        for (int x = 0; x < pw; x++)
+                            if (tmp.Pixels[y * pw + x] != s.Pixels[y * pw + x])
+                                using (var br = new SolidBrush(Color.FromArgb(180, PixColor(s, _colorIdx))))
+                                    g.FillRectangle(br, x * _zoom, y * _zoom, _zoom, _zoom);
+                }
             }
             _pic.Image = bmp;
         }
@@ -705,7 +1175,7 @@ namespace CompMacro11
                 for (int y = 0; y < ph; y++)
                     for (int x = 0; x < pw; x++)
                     {
-                        var c = PAL[s.PalIdx][s.Pixels[y * pw + x] % 4];
+                        var c = PixColor(s, s.Pixels[y * pw + x]);
                         using (var br = new SolidBrush(c))
                             g.FillRectangle(br, x * sc, y * sc, sc, sc);
                     }
@@ -739,19 +1209,24 @@ namespace CompMacro11
         void UpdatePal()
         {
             int pi = _sprites[_cur].PalIdx;
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < 4; i++)
                 _palBtns[i].BackColor = (i == pi) ? C_SEL : C_BG3;
             UpdateSwatches();
         }
 
         void UpdateSwatches()
         {
-            int pi = _sprites[_cur].PalIdx;
-            for (int i = 0; i < 4; i++)
+            var s = _sprites[_cur];
+            int n = NumColors(s);                  // 8 цветов (палитра ПП)
+            for (int i = 0; i < 8; i++)
             {
-                _swatches[i].BackColor = PAL[pi][i];
+                bool vis = i < n;
+                _swatches[i].Visible = vis;
+                if (vis) _swatches[i].BackColor = PixColor(s, i);
                 _swatches[i].Invalidate();
             }
+            // если выбранный цвет вне диапазона режима — сбросить на 0
+            if (_colorIdx >= n) { _colorIdx = 0; }
         }
 
         // ── Файлы ────────────────────────────────────────────────
@@ -808,6 +1283,7 @@ namespace CompMacro11
                     int pw = ((orig.Width + 7) / 8) * 8;
                     int ph = Math.Min(orig.Height, 200);
                     int pi = _sprites.Count > 0 ? _sprites[_cur].PalIdx : 0;
+                    // pi==3 → импорт в 8 цветов (PAL8), иначе в 4 цвета выбранного набора
 
                     // Диалог выбора алгоритма
                     var dlgAlg = new Form
@@ -882,7 +1358,7 @@ namespace CompMacro11
                     }
                     orig.Dispose();
 
-                    var pal = PAL[pi];
+                    var pal = (pi == 3) ? PAL8 : PAL[pi];
 
                     if (alg == 0)
                     {

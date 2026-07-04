@@ -63,7 +63,8 @@
   <ItemGroup>
     <Compile Include="AST.cs" />
     <Compile Include="CodeGen.cs" />
-    <Compile Include="CodeGen.Runtime.cs" />
+    <Compile Include="CodeGen.RuntimeCpu.cs" />
+    <Compile Include="CodeGen.RuntimeGame.cs" />
     <Compile Include="Form1.cs">
       <SubType>Component</SubType>
     </Compile>
