@@ -306,11 +306,11 @@ int main() {
             syncFrame(drawM);
         }
         i = 0;
-    while (i < 12) {
-        EX[i] = PX[i];
-        EY[i] = PY[i];
-        i = i + 1;
-    }
+        while (i < 12) {
+            EX[i] = PX[i];
+            EY[i] = PY[i];
+            i = i + 1;
+        }
         eraseM = drawM;
         starsRender();
 
