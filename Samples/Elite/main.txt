@@ -163,7 +163,7 @@ int main() {
         a = a + 3;  b = b + 1;
         project(curM, a, b);
         if (curM != drawM) {
-            wire(eraseM, 0, 1);
+            cls(0);
             wire(curM, 3, 0);
             snapEx();
             eraseM = curM;
