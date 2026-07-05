@@ -1,4 +1,4 @@
-﻿// Elite — 4 models (C/D): 1 TET 2 OCT 3 PYT 4 COR
+﻿// Elite — 4 models: TET OCT PYT COR
 int VX[24] = { 45, 45, -45, -45, 55, -55, 0, 0, 0, 0, 0, 0, 35, -35, 0, 0, -40, 40, 40, -40, -40, 40, 40, -40 };
 int VY[24] = { 45, -45, 45, -45, 0, 0, 55, -55, 0, 0, 0, 0, 0, 0, 28, -28, -40, -40, 40, 40, -40, -40, 40, 40 };
 int VZ[24] = { 45, -45, -45, 45, 0, 0, 0, 0, 55, -55, 80, -80, 0, 0, 0, 0, -40, -40, -40, -40, 40, 40, 40, 40 };
@@ -15,7 +15,9 @@ int EX[8];
 int EY[8];
 int edgeO[64];
 int edgeN[64];
-int DG[20] = { 2, 7, 2, 2, 2, 7, 1, 7, 4, 7, 7, 1, 7, 1, 7, 5, 5, 7, 1, 1 };
+int FONT[55] = { 17, 17, 31, 17, 17, 17, 16, 16, 16, 17, 16, 30, 16, 16, 16, 17, 17, 31, 17, 17, 25, 21, 19, 17, 17, 17, 17, 17, 17, 17, 17, 17, 30, 16, 16, 17, 17, 30, 20, 18, 16, 16, 14, 1, 1, 4, 4, 4, 4, 4, 17, 10, 4, 4, 4 };
+int NAMECH[12] = { 9, 2, 9, 5, 1, 9, 6, 10, 9, 1, 5, 7 };
+int NOFF[4] = { 0, 3, 6, 9 };
 
 void snapEx() {
     int i = 0;
@@ -145,21 +147,28 @@ void syncFrame(int m) {
     }
 }
 
-void drawLabel(int m, int c) {
-    int d, r, bits, col, mask, gx;
-    d = m + 1;
-    gx = 158;
-    r = 0;
-    while (r < 5) {
-        bits = DG[(d - 1) * 5 + r];
-        col = 0;
-        mask = 4;
-        while (col < 3) {
-            if (bits & mask) point(gx + col, 252 + r, c);
-            mask = mask / 2;
-            col = col + 1;
+void drawName(int m, int c) {
+    int i, off, gx, g, r, col, bits, mask, base;
+    off = NOFF[m];
+    gx = 154;
+    i = 0;
+    while (i < 3) {
+        g = NAMECH[off + i];
+        base = g * 5;
+        r = 0;
+        while (r < 5) {
+            bits = FONT[base + r];
+            col = 0;
+            mask = 16;
+            while (col < 5) {
+                if (bits & mask) point(gx + col, 252 + r, c);
+                mask = mask / 2;
+                col = col + 1;
+            }
+            r = r + 1;
         }
-        r = r + 1;
+        gx = gx + 6;
+        i = i + 1;
     }
 }
 
@@ -170,7 +179,7 @@ int main() {
     project(curM, a, b);
     wire(curM, 3, 0);
     snapEx();
-    drawLabel(curM, 1);
+    drawName(curM, 1);
     a = a + 3;  b = b + 1;
     project(curM, a, b);
     while (1) {
@@ -186,7 +195,7 @@ int main() {
             cls(0);
             wire(curM, 3, 0);
             snapEx();
-            drawLabel(curM, 1);
+            drawName(curM, 1);
             eraseM = curM;
         }
         drawM = curM;
