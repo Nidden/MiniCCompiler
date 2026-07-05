@@ -1,4 +1,4 @@
-﻿// Elite — 4 models: TET OCT PYT COR
+﻿// Elite — 4 models: TETRA OCTA PYTHON CORIOLIS
 int VX[24] = { 45, 45, -45, -45, 55, -55, 0, 0, 0, 0, 0, 0, 35, -35, 0, 0, -40, 40, 40, -40, -40, 40, 40, -40 };
 int VY[24] = { 45, -45, 45, -45, 0, 0, 55, -55, 0, 0, 0, 0, 0, 0, 28, -28, -40, -40, 40, 40, -40, -40, 40, 40 };
 int VZ[24] = { 45, -45, -45, 45, 0, 0, 0, 0, 55, -55, 80, -80, 0, 0, 0, 0, -40, -40, -40, -40, 40, 40, 40, 40 };
@@ -15,9 +15,6 @@ int EX[8];
 int EY[8];
 int edgeO[64];
 int edgeN[64];
-int FONT[55] = { 17, 17, 31, 17, 17, 17, 16, 16, 16, 17, 16, 30, 16, 16, 16, 17, 17, 31, 17, 17, 25, 21, 19, 17, 17, 17, 17, 17, 17, 17, 17, 17, 30, 16, 16, 17, 17, 30, 20, 18, 16, 16, 14, 1, 1, 4, 4, 4, 4, 4, 17, 10, 4, 4, 4 };
-int NAMECH[12] = { 9, 2, 9, 5, 1, 9, 6, 10, 9, 1, 5, 7 };
-int NOFF[4] = { 0, 3, 6, 9 };
 
 void snapEx() {
     int i = 0;
@@ -147,29 +144,13 @@ void syncFrame(int m) {
     }
 }
 
-void drawName(int m, int c) {
-    int i, off, gx, g, r, col, bits, mask, base;
-    off = NOFF[m];
-    gx = 154;
-    i = 0;
-    while (i < 3) {
-        g = NAMECH[off + i];
-        base = g * 5;
-        r = 0;
-        while (r < 5) {
-            bits = FONT[base + r];
-            col = 0;
-            mask = 16;
-            while (col < 5) {
-                if (bits & mask) point(gx + col, 252 + r, c);
-                mask = mask / 2;
-                col = col + 1;
-            }
-            r = r + 1;
-        }
-        gx = gx + 6;
-        i = i + 1;
-    }
+void showName(int m) {
+    setTextColor(1);
+    gotoxy(10, 24);
+    if (m == 0) print_str("TETRAHEDRON ");
+    if (m == 1) print_str("OCTAHEDRON  ");
+    if (m == 2) print_str("PYTHON      ");
+    if (m == 3) print_str("CORIOLIS    ");
 }
 
 int main() {
@@ -179,7 +160,7 @@ int main() {
     project(curM, a, b);
     wire(curM, 3, 0);
     snapEx();
-    drawName(curM, 1);
+    showName(curM);
     a = a + 3;  b = b + 1;
     project(curM, a, b);
     while (1) {
@@ -195,7 +176,7 @@ int main() {
             cls(0);
             wire(curM, 3, 0);
             snapEx();
-            drawName(curM, 1);
+            showName(curM);
             eraseM = curM;
         }
         drawM = curM;
