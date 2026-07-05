@@ -1,4 +1,4 @@
-﻿// Elite gallery — 7 models, CPU mode, diff wireframe
+﻿// Elite — 7 wireframe models, CPU mode
 int VX[52] = { 45, 45, -45, -45, 55, -55, 0, 0, 0, 0, 44, 22, -22, -44, -22, 22, 44, 22, -22, -44, -22, 22, 0, 0, 35, -35, 0, 0, 0, 0, 40, 0, -40, 0, -40, 40, 40, -40, -40, 40, 40, -40, 50, 35, 0, -35, -50, -35, 0, 35, 0, 0 };
 int VY[52] = { 45, -45, 45, -45, 0, 0, 55, -55, 0, 0, 0, 38, 38, 0, -38, -38, 0, 38, 38, 0, -38, -38, 0, 0, 0, 0, 28, -28, 0, 0, 0, 30, 0, -30, -40, -40, 40, 40, -40, -40, 40, 40, 0, 35, 50, 35, 0, -35, -50, -35, 0, 0 };
 int VZ[52] = { 45, -45, -45, 45, 0, 0, 0, 0, 55, -55, 34, 34, 34, 34, 34, 34, -34, -34, -34, -34, -34, -34, 80, -80, 0, 0, 0, 0, 95, -75, 0, 0, 0, 0, -40, -40, -40, -40, 40, 40, 40, 40, 0, 0, 0, 0, 0, 0, 0, 0, 25, -25 };
@@ -13,17 +13,6 @@ int PX[12];
 int PY[12];
 int EX[12];
 int EY[12];
-int starX[20];
-int starY[20];
-int starOX[20];
-int starOY[20];
-int starNC[20];
-int edgeO[144];
-int edgeN[144];
-int FONT[119] = { 0, 0, 0, 0, 0, 0, 0, 14, 17, 17, 31, 17, 17, 17, 14, 17, 16, 16, 16, 17, 14, 30, 17, 17, 17, 17, 17, 30, 31, 16, 30, 16, 16, 16, 31, 14, 17, 16, 23, 17, 17, 14, 17, 17, 17, 31, 17, 17, 17, 14, 4, 4, 4, 4, 4, 14, 16, 16, 16, 16, 16, 16, 31, 17, 27, 21, 21, 17, 17, 17, 17, 25, 21, 19, 17, 17, 17, 14, 17, 17, 17, 17, 17, 14, 30, 17, 17, 30, 16, 16, 16, 30, 17, 17, 30, 20, 18, 17, 15, 16, 16, 14, 1, 1, 30, 31, 4, 4, 4, 4, 4, 4, 17, 17, 10, 4, 4, 4, 4 };
-int NAMECH[50] = { 15, 4, 15, 13, 1, 11, 2, 15, 1, 6, 4, 3, 13, 11, 10, 12, 13, 7, 14, 9, 12, 16, 15, 6, 11, 10, 1, 10, 1, 2, 11, 10, 3, 1, 2, 11, 13, 7, 11, 8, 7, 14, 15, 6, 1, 13, 5, 11, 7, 3 };
-int NOFF[7] = { 0, 5, 15, 20, 26, 34, 42 };
-int NLEN[7] = { 5, 10, 5, 6, 8, 8, 8 };
 
 void snapEx() {
     int i = 0;
@@ -84,175 +73,25 @@ void wire(int m, int c, int ex) {
     }
 }
 
-void syncFrame(int m) {
-    int f, o, n, j, v0, v1, t, k, nv, ux, uy, vx, vy, cross;
-    int ox0, oy0, ox1, oy1, nx0, ny0, nx1, ny1;
-    nv = MVCNT[m];
-    k = 0;
-    while (k < 144) { edgeO[k] = 0;  edgeN[k] = 0;  k = k + 1; }
-    f = MFOFF[m];
-    while (f < MFOFF[m] + MFCNT[m]) {
-        o = FOFF[f];
-        n = FLEN[f];
-        ux = EX[FV[o + 1]] - EX[FV[o]];
-        uy = EY[FV[o + 1]] - EY[FV[o]];
-        vx = EX[FV[o + 2]] - EX[FV[o]];
-        vy = EY[FV[o + 2]] - EY[FV[o]];
-        cross = ux * vy - vx * uy;
-        if (cross > 0) {
-            j = 0;
-            while (j < n) {
-                v0 = FV[o + j];
-                v1 = FV[o + (j + 1) % n];
-                if (v0 > v1) { t = v0;  v0 = v1;  v1 = t; }
-                edgeO[v0 * 12 + v1] = 1;
-                j = j + 1;
-            }
-        }
-        ux = PX[FV[o + 1]] - PX[FV[o]];
-        uy = PY[FV[o + 1]] - PY[FV[o]];
-        vx = PX[FV[o + 2]] - PX[FV[o]];
-        vy = PY[FV[o + 2]] - PY[FV[o]];
-        cross = ux * vy - vx * uy;
-        if (cross > 0) {
-            j = 0;
-            while (j < n) {
-                v0 = FV[o + j];
-                v1 = FV[o + (j + 1) % n];
-                if (v0 > v1) { t = v0;  v0 = v1;  v1 = t; }
-                edgeN[v0 * 12 + v1] = 1;
-                j = j + 1;
-            }
-        }
-        f = f + 1;
-    }
-    v0 = 0;
-    while (v0 < nv) {
-        v1 = v0 + 1;
-        while (v1 < nv) {
-            k = v0 * 12 + v1;
-            if (edgeO[k] != 0 || edgeN[k] != 0) {
-                ox0 = EX[v0];  oy0 = EY[v0];
-                ox1 = EX[v1];  oy1 = EY[v1];
-                nx0 = PX[v0];  ny0 = PY[v0];
-                nx1 = PX[v1];  ny1 = PY[v1];
-                if (edgeO[k] != 0 && edgeN[k] != 0) {
-                    if (ox0 != nx0 || oy0 != ny0 || ox1 != nx1 || oy1 != ny1) {
-                        line(nx0, ny0, nx1, ny1, 3);
-                        line(ox0, oy0, ox1, oy1, 0);
-                    }
-                } else if (edgeO[k] != 0) {
-                    line(ox0, oy0, ox1, oy1, 0);
-                } else {
-                    line(nx0, ny0, nx1, ny1, 3);
-                }
-            }
-            v1 = v1 + 1;
-        }
-        v0 = v0 + 1;
-    }
-}
-
-void drawName(int m, int c) {
-    int i, n, off, gx, g, r, col, bits, mask, base;
-    n = NLEN[m];
-    off = NOFF[m];
-    gx = 160 - n * 3;
-    i = 0;
-    while (i < n) {
-        g = NAMECH[off + i];
-        base = g * 7;
-        r = 0;
-        while (r < 7) {
-            bits = FONT[base + r];
-            col = 0;
-            mask = 16;
-            while (col < 5) {
-                if (bits & mask) point(gx + col, 246 + r, c);
-                mask = mask / 2;
-                col = col + 1;
-            }
-            r = r + 1;
-        }
-        gx = gx + 6;
-        i = i + 1;
-    }
-}
-
-void stars(int t, int hot) {
-    int i;
-    if (hot == 0) {
-        i = 0;
-        while (i < 20) {
-            starOX[i] = starX[i];
-            starOY[i] = starY[i];
-            starY[i] = starY[i] + 1 + (i % 3);
-            if (starY[i] > 242) {
-                starY[i] = 8;
-                starX[i] = 10 + (i * 37 + t) % 300;
-            }
-            starNC[i] = ((i + t) % 3) + 1;
-            i = i + 1;
-        }
-    } else {
-        i = 0;
-        while (i < 20) {
-            point(starX[i], starY[i], starNC[i]);
-            i = i + 1;
-        }
-        i = 0;
-        while (i < 20) {
-            if (starOX[i] != starX[i] || starOY[i] != starY[i])
-                point(starOX[i], starOY[i], 0);
-            i = i + 1;
-        }
-    }
-}
-
 int main() {
-    int curM, drawM, eraseM, shownM, a, b, t, i, k;
+    int curM, showM, a, b, k;
     init(0);
-    i = 0;
-    while (i < 20) {
-        starX[i] = 10 + (i * 37) % 300;
-        starY[i] = 8 + (i * 53) % 235;
-        i = i + 1;
-    }
-    curM = 0;  a = 0;  b = 0;  t = 0;
+    curM = 0;  showM = 0;  a = 0;  b = 0;
     project(curM, a, b);
     wire(curM, 3, 0);
     snapEx();
-    eraseM = curM;
-    drawName(curM, 1);
-    shownM = curM;
     a = a + 3;  b = b + 1;
     project(curM, a, b);
-    drawM = curM;
-    stars(t, 0);
     while (1) {
         vsync();
-        syncFrame(drawM);
+        wire(showM, 0, 1);
+        wire(curM, 3, 0);
         snapEx();
-        stars(t, 1);
         k = getkey();
         if (k == 67) { curM = curM + 1;  if (curM > 6) curM = 0; }
         if (k == 68) { curM = curM - 1;  if (curM < 0) curM = 6; }
-        if (curM != shownM) {
-            drawName(shownM, 0);
-            drawName(curM, 1);
-            shownM = curM;
-        }
         a = a + 3;  b = b + 1;
-        t = t + 2;
-        if (t >= 256) t = t - 256;
         project(curM, a, b);
-        if (curM != drawM) {
-            wire(eraseM, 0, 1);
-            wire(curM, 3, 0);
-            snapEx();
-            eraseM = curM;
-        }
-        drawM = curM;
-        stars(t, 0);
+        showM = curM;
     }
 }
