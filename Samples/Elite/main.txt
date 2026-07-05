@@ -7,10 +7,8 @@
 //   Управление:  ← / →  — следующее/предыдущее тело
 //
 //   Анти-моргание (только Mini-C):
-//     • wireframe — дифференциальное обновление рёбер: стираем/
-//       рисуем только переместившиеся линии (канон v0<v1);
-//     • звёзды — план в холодной зоне, в кадре: сначала новые
-//       позиции, потом стирание старых (если сдвинулись);
+//     • syncFrame — дифф. обновление рёбер через EX/EY и PX/PY;
+//     • звёзды — план в холодной зоне, рисуем до стирания;
 //     • vsync — отрисовка только в горячей зоне кадра.
 // ============================================================
 
@@ -43,7 +41,7 @@ int starOY[30];
 int starNC[30];
 int starSpeed[30];
 
-// Буферы видимости рёбер для syncModel (12 вершин → 144 пары).
+// Буферы видимости рёбер (12 вершин → 144 пары v0<v1).
 int edgeVisO[144];
 int edgeVisN[144];
 
@@ -82,27 +80,21 @@ void project(int sx[], int sy[], int m, int a, int b) {
     }
 }
 
-// Векторное произведение грани (для отсечения невидимых).
-int faceCross(int sx[], int sy[], int o) {
-    int ux, uy, vx, vy;
-    ux = sx[FV[o + 1]] - sx[FV[o]];
-    uy = sy[FV[o + 1]] - sy[FV[o]];
-    vx = sx[FV[o + 2]] - sx[FV[o]];
-    vy = sy[FV[o + 2]] - sy[FV[o]];
-    return ux * vy - vx * uy;
-}
-
 // Полная отрисовка/стирание тела (смена модели).
 void drawModel(int sx[], int sy[], int m, int color) {
     int f, fend, o, n, j, v0, v1;
-    int cross;
+    int ux, uy, vx, vy, cross;
 
     f = MFOFF[m];
     fend = f + MFCNT[m];
     while (f < fend) {
         o = FOFF[f];
         n = FLEN[f];
-        cross = faceCross(sx, sy, o);
+        ux = sx[FV[o + 1]] - sx[FV[o]];
+        uy = sy[FV[o + 1]] - sy[FV[o]];
+        vx = sx[FV[o + 2]] - sx[FV[o]];
+        vy = sy[FV[o + 2]] - sy[FV[o]];
+        cross = ux * vy - vx * uy;
 
         if (cross > 0) {
             j = 0;
@@ -117,43 +109,60 @@ void drawModel(int sx[], int sy[], int m, int color) {
     }
 }
 
-// Дифференциальное обновление wireframe без моргания.
-// Сначала помечаем видимые рёбра (канон v0<v1), затем:
-//   • оба кадра — рисуем новое, стираем старое (только если сдвинулось);
-//   • только старое — стираем;
-//   • только новое — рисуем.
-void markVis(int sx[], int sy[], int m, int vis[]) {
+// Дифференциальное обновление кадра. Работает с глобальными EX/EY/PX/PY
+// (без вложенных вызовов с массивами-параметрами — экономия стека УКНЦ).
+void syncFrame(int m) {
     int f, fend, o, n, j, v0, v1, tmp, key, i;
+    int ux, uy, vx, vy, cross;
+    int ox0, oy0, ox1, oy1, nx0, ny0, nx1, ny1;
 
     i = 0;
-    while (i < 144) { vis[i] = 0;  i = i + 1; }
+    while (i < 144) { edgeVisO[i] = 0;  edgeVisN[i] = 0;  i = i + 1; }
 
     f = MFOFF[m];
     fend = f + MFCNT[m];
     while (f < fend) {
         o = FOFF[f];
         n = FLEN[f];
-        if (faceCross(sx, sy, o) > 0) {
+        ux = EX[FV[o + 1]] - EX[FV[o]];
+        uy = EY[FV[o + 1]] - EY[FV[o]];
+        vx = EX[FV[o + 2]] - EX[FV[o]];
+        vy = EY[FV[o + 2]] - EY[FV[o]];
+        cross = ux * vy - vx * uy;
+        if (cross > 0) {
             j = 0;
             while (j < n) {
                 v0 = FV[o + j];
                 v1 = FV[o + (j + 1) % n];
                 if (v0 > v1) { tmp = v0;  v0 = v1;  v1 = tmp; }
-                key = v0 * 12 + v1;
-                vis[key] = 1;
+                edgeVisO[v0 * 12 + v1] = 1;
                 j = j + 1;
             }
         }
         f = f + 1;
     }
-}
 
-void syncModel(int oldSx[], int oldSy[], int newSx[], int newSy[], int m) {
-    int v0, v1, key;
-    int ox0, oy0, ox1, oy1, nx0, ny0, nx1, ny1;
-
-    markVis(oldSx, oldSy, m, edgeVisO);
-    markVis(newSx, newSy, m, edgeVisN);
+    f = MFOFF[m];
+    while (f < fend) {
+        o = FOFF[f];
+        n = FLEN[f];
+        ux = PX[FV[o + 1]] - PX[FV[o]];
+        uy = PY[FV[o + 1]] - PY[FV[o]];
+        vx = PX[FV[o + 2]] - PX[FV[o]];
+        vy = PY[FV[o + 2]] - PY[FV[o]];
+        cross = ux * vy - vx * uy;
+        if (cross > 0) {
+            j = 0;
+            while (j < n) {
+                v0 = FV[o + j];
+                v1 = FV[o + (j + 1) % n];
+                if (v0 > v1) { tmp = v0;  v0 = v1;  v1 = tmp; }
+                edgeVisN[v0 * 12 + v1] = 1;
+                j = j + 1;
+            }
+        }
+        f = f + 1;
+    }
 
     v0 = 0;
     while (v0 < 12) {
@@ -161,10 +170,10 @@ void syncModel(int oldSx[], int oldSy[], int newSx[], int newSy[], int m) {
         while (v1 < 12) {
             key = v0 * 12 + v1;
             if (edgeVisO[key] || edgeVisN[key]) {
-                ox0 = oldSx[v0];  oy0 = oldSy[v0];
-                ox1 = oldSx[v1];  oy1 = oldSy[v1];
-                nx0 = newSx[v0];  ny0 = newSy[v0];
-                nx1 = newSx[v1];  ny1 = newSy[v1];
+                ox0 = EX[v0];  oy0 = EY[v0];
+                ox1 = EX[v1];  oy1 = EY[v1];
+                nx0 = PX[v0];  ny0 = PY[v0];
+                nx1 = PX[v1];  ny1 = PY[v1];
 
                 if (edgeVisO[key] && edgeVisN[key]) {
                     if (ox0 != nx0 || oy0 != ny0 || ox1 != nx1 || oy1 != ny1) {
@@ -283,7 +292,7 @@ int main() {
             drawModel(EX, EY, eraseM, 0);
             drawModel(PX, PY, drawM, 3);
         } else {
-            syncModel(EX, EY, PX, PY, drawM);
+            syncFrame(drawM);
         }
         i = 0;  while (i < 12) { EX[i] = PX[i];  EY[i] = PY[i];  i = i + 1; }
         eraseM = drawM;
