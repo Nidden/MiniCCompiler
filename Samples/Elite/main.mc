@@ -27,13 +27,11 @@ int MVCNT[7] = { 4, 6, 12, 6, 6, 8, 10 };
 int MFOFF[7] = { 0, 4, 12, 20, 28, 36, 42 };
 int MFCNT[7] = { 4, 8, 8, 8, 8, 6, 16 };
 
-// Два буфера экранных координат (макс 12 вершин у призмы).
 int PX[12];
 int PY[12];
 int EX[12];
 int EY[12];
 
-// ── Летящее звёздное небо: 30 звёзд ─────────────────────────
 int starX[30];
 int starY[30];
 int starOX[30];
@@ -41,11 +39,9 @@ int starOY[30];
 int starNC[30];
 int starSpeed[30];
 
-// Буферы видимости рёбер (12 вершин → 144 пары v0<v1).
 int edgeOld[144];
 int edgeNew[144];
 
-// ── Шрифт 5x7 и имена тел ───────────────────────────────────
 int FONT[119] = { 0, 0, 0, 0, 0, 0, 0, 14, 17, 17, 31, 17, 17, 17, 14, 17, 16, 16, 16, 17, 14, 30, 17, 17, 17, 17, 17, 30, 31, 16, 30, 16, 16, 16, 31, 14, 17, 16, 23, 17, 17, 14, 17, 17, 17, 31, 17, 17, 17, 14, 4, 4, 4, 4, 4, 14, 16, 16, 16, 16, 16, 16, 31, 17, 27, 21, 21, 17, 17, 17, 17, 25, 21, 19, 17, 17, 17, 14, 17, 17, 17, 17, 17, 14, 30, 17, 17, 30, 16, 16, 16, 30, 17, 17, 30, 20, 18, 17, 15, 16, 16, 14, 1, 1, 30, 31, 4, 4, 4, 4, 4, 4, 17, 17, 10, 4, 4, 4, 4 };
 int NAMECH[50] = { 15, 4, 15, 13, 1, 11, 2, 15, 1, 6, 4, 3, 13, 11, 10, 12, 13, 7, 14, 9, 12, 16, 15, 6, 11, 10, 1, 10, 1, 2, 11, 10, 3, 1, 2, 11, 13, 7, 11, 8, 7, 14, 15, 6, 1, 13, 5, 11, 7, 3 };
 int NOFF[7] = { 0, 5, 15, 20, 26, 34, 42 };
@@ -53,7 +49,6 @@ int NLEN[7] = { 5, 10, 5, 6, 8, 8, 8 };
 
 // ── функции ─────────────────────────────────────────────────
 
-// Проекция вершин модели m в буфер sx/sy (углы a,b). ХОЛОДНАЯ зона.
 void project(int sx[], int sy[], int m, int a, int b) {
     int i, n, base;
     int x, y, z;
@@ -65,7 +60,8 @@ void project(int sx[], int sy[], int m, int a, int b) {
     ca = cos256(a);  sa = sin256(a);
     cb = cos256(b);  sb = sin256(b);
 
-    for (i = 0; i < n; i++) {
+    i = 0;
+    while (i < n) {
         x = VX[base + i];  y = VY[base + i];  z = VZ[base + i];
 
         rx  = (x * ca - z * sa) / 256;
@@ -76,16 +72,18 @@ void project(int sx[], int sy[], int m, int a, int b) {
         zp = rz2 + 340;
         sx[i] = 160 + (rx * 256) / zp;
         sy[i] = 132 - (ry * 256) / zp;
+
+        i = i + 1;
     }
 }
 
-// Полная отрисовка тела (только лицевые грани).
 void drawModel(int sx[], int sy[], int m, int color) {
     int f, fend, o, n, j, v0, v1;
     int ux, uy, vx, vy, cross;
 
-    fend = MFOFF[m] + MFCNT[m];
-    for (f = MFOFF[m]; f < fend; f++) {
+    f = MFOFF[m];
+    fend = f + MFCNT[m];
+    while (f < fend) {
         o = FOFF[f];
         n = FLEN[f];
         ux = sx[FV[o + 1]] - sx[FV[o]];
@@ -95,32 +93,37 @@ void drawModel(int sx[], int sy[], int m, int color) {
         cross = ux * vy - vx * uy;
 
         if (cross > 0) {
-            for (j = 0; j < n; j++) {
+            j = 0;
+            while (j < n) {
                 v0 = FV[o + j];
                 v1 = FV[o + (j + 1) % n];
                 line(sx[v0], sy[v0], sx[v1], sy[v1], color);
+                j = j + 1;
             }
         }
+        f = f + 1;
     }
 }
 
-// Стирание всех рёбер модели m по EX/EY — без отсечения (иначе остаются глюки).
 void eraseModel(int m) {
     int f, fend, o, n, j, v0, v1;
 
-    fend = MFOFF[m] + MFCNT[m];
-    for (f = MFOFF[m]; f < fend; f++) {
+    f = MFOFF[m];
+    fend = f + MFCNT[m];
+    while (f < fend) {
         o = FOFF[f];
         n = FLEN[f];
-        for (j = 0; j < n; j++) {
+        j = 0;
+        while (j < n) {
             v0 = FV[o + j];
             v1 = FV[o + (j + 1) % n];
             line(EX[v0], EY[v0], EX[v1], EY[v1], 0);
+            j = j + 1;
         }
+        f = f + 1;
     }
 }
 
-// Дифференциальное обновление кадра. Глобальные EX/EY/PX/PY.
 void syncFrame(int m) {
     int f, fend, o, n, j, v0, v1, tmp, key, nv;
     int ux, uy, vx, vy, cross;
@@ -128,13 +131,16 @@ void syncFrame(int m) {
 
     nv = MVCNT[m];
 
-    for (key = 0; key < 144; key++) {
+    key = 0;
+    while (key < 144) {
         edgeOld[key] = 0;
         edgeNew[key] = 0;
+        key = key + 1;
     }
 
-    fend = MFOFF[m] + MFCNT[m];
-    for (f = MFOFF[m]; f < fend; f++) {
+    f = MFOFF[m];
+    fend = f + MFCNT[m];
+    while (f < fend) {
         o = FOFF[f];
         n = FLEN[f];
 
@@ -144,11 +150,13 @@ void syncFrame(int m) {
         vy = EY[FV[o + 2]] - EY[FV[o]];
         cross = ux * vy - vx * uy;
         if (cross > 0) {
-            for (j = 0; j < n; j++) {
+            j = 0;
+            while (j < n) {
                 v0 = FV[o + j];
                 v1 = FV[o + (j + 1) % n];
                 if (v0 > v1) { tmp = v0;  v0 = v1;  v1 = tmp; }
                 edgeOld[v0 * 12 + v1] = 1;
+                j = j + 1;
             }
         }
 
@@ -158,88 +166,104 @@ void syncFrame(int m) {
         vy = PY[FV[o + 2]] - PY[FV[o]];
         cross = ux * vy - vx * uy;
         if (cross > 0) {
-            for (j = 0; j < n; j++) {
+            j = 0;
+            while (j < n) {
                 v0 = FV[o + j];
                 v1 = FV[o + (j + 1) % n];
                 if (v0 > v1) { tmp = v0;  v0 = v1;  v1 = tmp; }
                 edgeNew[v0 * 12 + v1] = 1;
+                j = j + 1;
             }
         }
+        f = f + 1;
     }
 
-    for (v0 = 0; v0 < nv; v0++) {
-        for (v1 = v0 + 1; v1 < nv; v1++) {
+    v0 = 0;
+    while (v0 < nv) {
+        v1 = v0 + 1;
+        while (v1 < nv) {
             key = v0 * 12 + v1;
-            if (!edgeOld[key] && !edgeNew[key]) continue;
+            if (edgeOld[key] != 0 || edgeNew[key] != 0) {
+                ox0 = EX[v0];  oy0 = EY[v0];
+                ox1 = EX[v1];  oy1 = EY[v1];
+                nx0 = PX[v0];  ny0 = PY[v0];
+                nx1 = PX[v1];  ny1 = PY[v1];
 
-            ox0 = EX[v0];  oy0 = EY[v0];
-            ox1 = EX[v1];  oy1 = EY[v1];
-            nx0 = PX[v0];  ny0 = PY[v0];
-            nx1 = PX[v1];  ny1 = PY[v1];
-
-            if (edgeOld[key] && edgeNew[key]) {
-                if (ox0 != nx0 || oy0 != ny0 || ox1 != nx1 || oy1 != ny1) {
-                    line(nx0, ny0, nx1, ny1, 3);
+                if (edgeOld[key] != 0 && edgeNew[key] != 0) {
+                    if (ox0 != nx0 || oy0 != ny0 || ox1 != nx1 || oy1 != ny1) {
+                        line(nx0, ny0, nx1, ny1, 3);
+                        line(ox0, oy0, ox1, oy1, 0);
+                    }
+                } else if (edgeOld[key] != 0) {
                     line(ox0, oy0, ox1, oy1, 0);
+                } else {
+                    line(nx0, ny0, nx1, ny1, 3);
                 }
-            } else if (edgeOld[key]) {
-                line(ox0, oy0, ox1, oy1, 0);
-            } else {
-                line(nx0, ny0, nx1, ny1, 3);
             }
+            v1 = v1 + 1;
         }
+        v0 = v0 + 1;
     }
 }
 
-// Один глиф шрифта 5x7 в точку (gx,gy) цветом color.
 void drawGlyph(int gx, int gy, int g, int color) {
     int r, c, bits, mask, base;
     base = g * 7;
-    for (r = 0; r < 7; r++) {
+    r = 0;
+    while (r < 7) {
         bits = FONT[base + r];
+        c = 0;
         mask = 16;
-        for (c = 0; c < 5; c++) {
+        while (c < 5) {
             if (bits & mask) point(gx + c, gy + r, color);
             mask = mask / 2;
+            c = c + 1;
         }
+        r = r + 1;
     }
 }
 
-// Имя тела m по центру внизу цветом color.
 void drawName(int m, int color) {
     int i, n, off, gx;
     n = NLEN[m];
     off = NOFF[m];
     gx = 160 - n * 3;
-    for (i = 0; i < n; i++) {
+    i = 0;
+    while (i < n) {
         drawGlyph(gx, 246, NAMECH[off + i], color);
-        gx += 6;
+        gx = gx + 6;
+        i = i + 1;
     }
 }
 
-// ХОЛОДНАЯ зона: планируем следующие позиции звёзд.
 void starsPlan(int t) {
     int i;
-    for (i = 0; i < 30; i++) {
+    i = 0;
+    while (i < 30) {
         starOX[i] = starX[i];
         starOY[i] = starY[i];
-        starY[i] += starSpeed[i];
+        starY[i] = starY[i] + starSpeed[i];
         if (starY[i] > 242) {
             starY[i] = 8;
             starX[i] = 10 + (i * 37 + t) % 300;
         }
         starNC[i] = ((i + t) % 3) + 1;
+        i = i + 1;
     }
 }
 
-// ГОРЯЧАЯ зона: сначала рисуем новые звёзды, потом стираем старые.
 void starsRender() {
     int i;
-    for (i = 0; i < 30; i++)
+    i = 0;
+    while (i < 30) {
         point(starX[i], starY[i], starNC[i]);
-    for (i = 0; i < 30; i++) {
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 30) {
         if (starOX[i] != starX[i] || starOY[i] != starY[i])
             point(starOX[i], starOY[i], 0);
+        i = i + 1;
     }
 }
 
@@ -249,25 +273,29 @@ int main() {
 
     init(0);
 
-    for (i = 0; i < 30; i++) {
+    i = 0;
+    while (i < 30) {
         starX[i] = 10 + (i * 37) % 300;
         starY[i] = 8 + (i * 53) % 235;
         starOX[i] = starX[i];
         starOY[i] = starY[i];
         starSpeed[i] = (i % 3) + 1;
+        i = i + 1;
     }
 
     curM = 0;  a = 0;  b = 0;  t = 0;
     project(PX, PY, curM, a, b);
     drawModel(PX, PY, curM, 3);
-    for (i = 0; i < 12; i++) {
+    i = 0;
+    while (i < 12) {
         EX[i] = PX[i];
         EY[i] = PY[i];
+        i = i + 1;
     }
     eraseM = curM;
     drawName(curM, 1);  shownM = curM;
 
-    a += 3;  b++;
+    a = a + 3;  b = b + 1;
     project(PX, PY, curM, a, b);
     drawM = curM;
     starsPlan(t);
@@ -275,31 +303,36 @@ int main() {
     while (1) {
         vsync();
         syncFrame(drawM);
-        for (i = 0; i < 12; i++) {
+        i = 0;
+        while (i < 12) {
             EX[i] = PX[i];
             EY[i] = PY[i];
+            i = i + 1;
         }
         starsRender();
 
         k = getkey();
-        if (k == 67) { curM++;  if (curM > 6) curM = 0; }
-        if (k == 68) { curM--;  if (curM < 0) curM = 6; }
+        if (k == 67) { curM = curM + 1;  if (curM > 6) curM = 0; }
+        if (k == 68) { curM = curM - 1;  if (curM < 0) curM = 6; }
         if (curM != shownM) {
             drawName(shownM, 0);
             drawName(curM, 1);
             shownM = curM;
         }
 
-        a += 3;  b++;
-        t += 2;  if (t >= 256) t -= 256;
+        a = a + 3;  b = b + 1;
+        t = t + 2;
+        if (t >= 256) t = t - 256;
         project(PX, PY, curM, a, b);
 
         if (curM != drawM) {
             eraseModel(eraseM);
             drawModel(PX, PY, curM, 3);
-            for (i = 0; i < 12; i++) {
+            i = 0;
+            while (i < 12) {
                 EX[i] = PX[i];
                 EY[i] = PY[i];
+                i = i + 1;
             }
             eraseM = curM;
         }
