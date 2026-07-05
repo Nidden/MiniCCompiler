@@ -122,6 +122,7 @@ namespace CompMacro11
         private Label _statusPos;
         private bool _highlighting;
         private System.Windows.Forms.Timer _hlTimer;
+        private System.Windows.Forms.Timer _scrollTimer;
         private SpriteEditor _spriteEditor;
         private string _emulatorPath = "";   // путь к UKNCBTL.exe
         private McProject _project = null;   // текущий проект
@@ -239,7 +240,13 @@ namespace CompMacro11
             };
 
             // ── Меню Проект ───────────────────────────────────────
-            var btnProject = MakeBtn("📁 Проект ▾", 110, Color.FromArgb(40, 70, 40), 717);
+            var btnDisk = MakeBtn("💾 Диск", 90, Color.FromArgb(50, 55, 75), 717);
+            btnDisk.Click += (_, __) =>
+            {
+                using (var d = new DskDialog()) d.ShowDialog(this);
+            };
+
+            var btnProject = MakeBtn("📁 Проект ▾", 110, Color.FromArgb(40, 70, 40), 811);
             btnProject.Click += (_, __) =>
             {
                 var menu = new ContextMenuStrip();
@@ -275,7 +282,7 @@ namespace CompMacro11
                 menu.Show(btnProject, new System.Drawing.Point(0, btnProject.Height));
             };
 
-            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, btnSettings, btnRun, btnHelp, btnSprites, btnProject, _status });
+            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, btnSettings, btnRun, btnHelp, btnSprites, btnDisk, btnProject, _status });
 
             // ── Заголовки ─────────────────────────────────────────
             var hdr = new Panel
@@ -349,10 +356,14 @@ namespace CompMacro11
                 WordWrap = false,
                 AcceptsTab = true
             };
-            // Дебаунс подсветки — 400мс после последнего нажатия
-            _hlTimer = new System.Windows.Forms.Timer { Interval = 400 };
+            // Дебаунс подсветки — 120мс после последнего нажатия (окно мало → быстро)
+            _hlTimer = new System.Windows.Forms.Timer { Interval = 120 };
             _hlTimer.Tick += (_, __) => { _hlTimer.Stop(); Highlight(); };
             _src.TextChanged += (_, __) => { if (!_highlighting) { _hlTimer.Stop(); _hlTimer.Start(); } };
+            // Перекрашивать при прокрутке — новые видимые строки (дебаунс 60мс)
+            _scrollTimer = new System.Windows.Forms.Timer { Interval = 60 };
+            _scrollTimer.Tick += (_, __) => { _scrollTimer.Stop(); Highlight(); };
+            _src.VScroll += (_, __) => { if (!_highlighting) { _scrollTimer.Stop(); _scrollTimer.Start(); } };
 
             _linePanel = new LineNumPanel(_src);
 
@@ -1398,22 +1409,41 @@ namespace CompMacro11
             _highlighting = true;
 
             int sel = _src.SelectionStart;
-            int topChar = _src.GetCharIndexFromPosition(new System.Drawing.Point(1, 1));
 
-            _src.SuspendLayout();
+            // ── Виртуализация: подсвечиваем только ВИДИМЫЕ строки + запас ──
+            // Нагрузка перестаёт зависеть от размера файла.
+            int topCharIdx = _src.GetCharIndexFromPosition(new System.Drawing.Point(1, 1));
+            int botCharIdx = _src.GetCharIndexFromPosition(
+                new System.Drawing.Point(1, Math.Max(1, _src.ClientSize.Height - 2)));
+            int firstLine = _src.GetLineFromCharIndex(topCharIdx);
+            int lastLine = _src.GetLineFromCharIndex(botCharIdx);
+            int totalLines = _src.Lines.Length;
+            const int MARGIN = 40;                       // запас строк сверху/снизу
+            firstLine = Math.Max(0, firstLine - MARGIN);
+            lastLine = Math.Min(Math.Max(0, totalLines - 1), lastLine + MARGIN);
+
+            int winStart = _src.GetFirstCharIndexFromLine(firstLine);
+            if (winStart < 0) winStart = 0;
+            int lastLineStart = _src.GetFirstCharIndexFromLine(lastLine);
+            int winEnd = (lastLineStart < 0)
+                ? _src.TextLength
+                : lastLineStart + (lastLine < totalLines ? _src.Lines[lastLine].Length : 0);
+            if (winEnd > _src.TextLength) winEnd = _src.TextLength;
+            int winLen = winEnd - winStart;
+            if (winLen <= 0) { _highlighting = false; return; }
+
             BeginRtbUpdate(_src);
 
-            string text = _src.Text;
+            // Берём ТОЛЬКО видимое окно, а не весь _src.Text
+            string text = _src.Text.Substring(winStart, winLen);
             int n = text.Length;
             var spans = new System.Collections.Generic.List<(int s, int l, Color c)>(256);
-            var spriteNames = GetSpriteNames();
 
             int i = 0;
             while (i < n)
             {
                 char ch = text[i];
 
-                // Однострочный комментарий
                 if (ch == '/' && i + 1 < n && text[i + 1] == '/')
                 {
                     int start = i;
@@ -1421,18 +1451,15 @@ namespace CompMacro11
                     spans.Add((start, i - start, C_COMMENT));
                     continue;
                 }
-
-                // Блочный комментарий
                 if (ch == '/' && i + 1 < n && text[i + 1] == '*')
                 {
                     int start = i; i += 2;
                     while (i < n - 1 && !(text[i] == '*' && text[i + 1] == '/')) i++;
                     i += 2;
+                    if (i > n) i = n;
                     spans.Add((start, i - start, C_COMMENT));
                     continue;
                 }
-
-                // Число
                 if (char.IsDigit(ch) && (i == 0 || !char.IsLetterOrDigit(text[i - 1])))
                 {
                     int start = i;
@@ -1441,8 +1468,6 @@ namespace CompMacro11
                         spans.Add((start, i - start, C_NUMBER));
                     continue;
                 }
-
-                // Идентификатор или ключевое слово
                 if (char.IsLetter(ch) || ch == '_')
                 {
                     int start = i;
@@ -1454,35 +1479,25 @@ namespace CompMacro11
                     else if (KwBool.Contains(word)) spans.Add((start, i - start, C_NUMBER));
                     continue;
                 }
-
                 i++;
             }
 
-            // Применить все spans
-            _src.SelectAll();
+            // Сброс цвета только в видимом окне, затем спаны (смещены на winStart)
+            _src.Select(winStart, winLen);
             _src.SelectionColor = C_TEXT;
             foreach (var (s, l, c) in spans)
             {
-                _src.SelectionStart = s;
+                _src.SelectionStart = winStart + s;
                 _src.SelectionLength = l;
                 _src.SelectionColor = c;
             }
 
-            // Восстановить каретку ДО EndRtbUpdate
+            // Восстановить каретку без прокрутки (окно не двигаем — красили видимое)
             _src.SelectionStart = sel;
             _src.SelectionLength = 0;
             _src.SelectionColor = C_TEXT;
 
             EndRtbUpdate(_src);
-            _src.ResumeLayout();
-
-            // Восстановить позицию скролла ПОСЛЕ перерисовки:
-            // сначала прокрутить к topChar, затем вернуть реальную каретку
-            _src.SelectionStart = topChar;
-            _src.ScrollToCaret();
-            _src.SelectionStart = sel;
-            _src.SelectionLength = 0;
-
             _highlighting = false;
         }
 

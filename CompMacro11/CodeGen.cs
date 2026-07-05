@@ -110,7 +110,8 @@ namespace CompMacro11
             "point", "line", "rect", "fill_rect", "fill_dither", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setPlaceColor", "setCursorColor",
             "vsync", "sin256", "cos256", "abs", "min", "max", "clamp",
             "ppu_init", "pp_init", "pp_point", "pp_line", "pp_sprite", "pp_stop",
-            "spr", "pp_spr", "pp_blit", "vpoke", "pp_peek", "vload", "pp_vspr"
+            "spr", "pp_spr", "pp_blit", "vpoke", "pp_peek", "vload", "pp_vspr",
+            "fload", "fsave", "print_buf", "str_to_buf"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -2937,6 +2938,54 @@ namespace CompMacro11
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
                     EI("JSR", "PC, RTPPVS");
                     EI("ADD", "#6., SP");
+                    break;
+
+                case "fload":
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: fload(name,buf,maxwords) требует 3 аргумента");
+                    EC($"fload({ArgStr(c)}): загрузка файла с диска (RT-11)");
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // maxwords
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // buf
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // name
+                    EI("JSR", "PC, RTFLOAD");
+                    EI("ADD", "#6., SP");        // результат (прочитано слов) в R0
+                    break;
+
+                case "fsave":
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: fsave(name,buf,words) требует 3 аргумента");
+                    EC($"fsave({ArgStr(c)}): запись файла на диск (RT-11)");
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // words
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // buf
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // name
+                    EI("JSR", "PC, RTFSAVE");
+                    EI("ADD", "#6., SP");        // результат (0/-1) в R0
+                    break;
+
+                case "print_buf":
+                    if (c.Args.Count != 2)
+                        throw new Exception($"Строка {c.Line}: print_buf(buf,nbytes) требует 2 аргумента");
+                    EC($"print_buf({ArgStr(c)}): печать текста из буфера");
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // nbytes
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // buf
+                    EI("JSR", "PC, RTPBUF");
+                    EI("ADD", "#4., SP");
+                    break;
+
+                case "str_to_buf":
+                    // str_to_buf("текст", buf) → R0 = число байт (для fsave)
+                    if (c.Args.Count != 2)
+                        throw new Exception($"Строка {c.Line}: str_to_buf(str,buf) требует 2 аргумента");
+                    if (!(c.Args[0] is StringLiteralExpr sbl))
+                        throw new Exception($"Строка {c.Line}: str_to_buf: первый аргумент — строковый литерал");
+                    EC($"str_to_buf(\"{sbl.Value}\", buf): строка → буфер");
+                    {
+                        string lbl = InternString(sbl.Value);
+                        EI("MOV", $"#{lbl}, R1");   // src строка
+                        GenExpr(c.Args[1]);          // R0 = buf
+                        EI("MOV", "R0, R2");         // dst
+                        EI("JSR", "PC, RTSTBUF");
+                    }
                     break;
 
                 case "pp_blit":

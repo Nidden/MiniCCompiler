@@ -1485,7 +1485,9 @@ namespace CompMacro11
             E("        MOV\t(SP)+, R5");
             E("        RTS\tPC");
             E("");
+            EmitDiskIO();                       // дисковый I/O (RT-11 EMT)
             E("        .PSECT\tDATA, RW, D");
+            EmitDiskIOData();                   // буферы/имя для I/O
             E("CTAB:   .WORD\tCM0,CM1,CM2,CM3");
             E("; FCTAB: слово цвета для fill_rect (8 пикселей одного цвета)");
             E("; цвет 0=0x0000  1=0x00FF  2=0xFF00  3=0xFFFF");
