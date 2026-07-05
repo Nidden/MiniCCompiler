@@ -79,7 +79,7 @@ void project(int sx[], int sy[], int m, int a, int b) {
     }
 }
 
-// Полная отрисовка/стирание тела (смена модели).
+// Полная отрисовка тела (только лицевые грани).
 void drawModel(int sx[], int sy[], int m, int color) {
     int f, fend, o, n, j, v0, v1;
     int ux, uy, vx, vy, cross;
@@ -104,11 +104,29 @@ void drawModel(int sx[], int sy[], int m, int color) {
     }
 }
 
+// Стирание всех рёбер модели m по EX/EY — без отсечения (иначе остаются глюки).
+void eraseModel(int m) {
+    int f, fend, o, n, j, v0, v1;
+
+    fend = MFOFF[m] + MFCNT[m];
+    for (f = MFOFF[m]; f < fend; f++) {
+        o = FOFF[f];
+        n = FLEN[f];
+        for (j = 0; j < n; j++) {
+            v0 = FV[o + j];
+            v1 = FV[o + (j + 1) % n];
+            line(EX[v0], EY[v0], EX[v1], EY[v1], 0);
+        }
+    }
+}
+
 // Дифференциальное обновление кадра. Глобальные EX/EY/PX/PY.
 void syncFrame(int m) {
-    int f, fend, o, n, j, v0, v1, tmp, key;
+    int f, fend, o, n, j, v0, v1, tmp, key, nv;
     int ux, uy, vx, vy, cross;
     int ox0, oy0, ox1, oy1, nx0, ny0, nx1, ny1;
+
+    nv = MVCNT[m];
 
     for (key = 0; key < 144; key++) {
         edgeOld[key] = 0;
@@ -149,8 +167,8 @@ void syncFrame(int m) {
         }
     }
 
-    for (v0 = 0; v0 < 12; v0++) {
-        for (v1 = v0 + 1; v1 < 12; v1++) {
+    for (v0 = 0; v0 < nv; v0++) {
+        for (v1 = v0 + 1; v1 < nv; v1++) {
             key = v0 * 12 + v1;
             if (!edgeOld[key] && !edgeNew[key]) continue;
 
@@ -256,18 +274,11 @@ int main() {
 
     while (1) {
         vsync();
-
-        if (eraseM != drawM) {
-            drawModel(EX, EY, eraseM, 0);
-            drawModel(PX, PY, drawM, 3);
-        } else {
-            syncFrame(drawM);
-        }
+        syncFrame(drawM);
         for (i = 0; i < 12; i++) {
             EX[i] = PX[i];
             EY[i] = PY[i];
         }
-        eraseM = drawM;
         starsRender();
 
         k = getkey();
@@ -282,6 +293,16 @@ int main() {
         a += 3;  b++;
         t += 2;  if (t >= 256) t -= 256;
         project(PX, PY, curM, a, b);
+
+        if (curM != drawM) {
+            eraseModel(eraseM);
+            drawModel(PX, PY, curM, 3);
+            for (i = 0; i < 12; i++) {
+                EX[i] = PX[i];
+                EY[i] = PY[i];
+            }
+            eraseM = curM;
+        }
         drawM = curM;
         starsPlan(t);
     }
