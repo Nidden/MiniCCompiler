@@ -22,7 +22,7 @@ void snapEx() {
 }
 
 void project(int m, int a, int b) {
-    int i, n, base, x, y, z, ca, sa, cb, sb, rx, rz, ry, rz2, zp;
+    int i, n, base, x, y, z, ca, sa, cb, sb, rx, rz, ry, rz2, zp, sx, sy;
     base = MVOFF[m];
     n = MVCNT[m];
     ca = cos256(a);  sa = sin256(a);
@@ -30,13 +30,22 @@ void project(int m, int a, int b) {
     i = 0;
     while (i < n) {
         x = VX[base + i];  y = VY[base + i];  z = VZ[base + i];
-        rx = (x * ca - z * sa) / 256;
-        rz = (x * sa + z * ca) / 256;
-        ry = (y * cb - rz * sb) / 256;
-        rz2 = (y * sb + rz * cb) / 256;
+        rx = x * ca - z * sa;
+        rx = (rx + 128) / 256;
+        rz = x * sa + z * ca;
+        rz = (rz + 128) / 256;
+        ry = y * cb - rz * sb;
+        ry = (ry + 128) / 256;
+        rz2 = y * sb + rz * cb;
+        rz2 = (rz2 + 128) / 256;
         zp = rz2 + 340;
-        PX[i] = 160 + (rx * 256) / zp;
-        PY[i] = 132 - (ry * 256) / zp;
+        if (zp < 80) zp = 80;
+        sx = rx * 256;
+        sy = ry * 256;
+        if (sx >= 0) sx = sx + zp / 2;  else sx = sx - zp / 2;
+        if (sy >= 0) sy = sy + zp / 2;  else sy = sy - zp / 2;
+        PX[i] = 160 + sx / zp;
+        PY[i] = 132 - sy / zp;
         i = i + 1;
     }
 }
@@ -76,8 +85,11 @@ void wire(int m, int c, int ex) {
 }
 
 void syncFrame(int m) {
-    int f, o, n, j, v0, v1, t, k, nv, ux, uy, vx, vy, cross;
-    int ox0, oy0, ox1, oy1, nx0, ny0, nx1, ny1;
+    int f, o, n, j, v0, v1, t, k, nv, ux, uy, vx, vy, cross, c;
+    c = 2;
+    if (m != 0) {
+        c = 3;
+    }
     nv = MVCNT[m];
     k = 0;
     while (k < 144) { edgeO[k] = 0;  edgeN[k] = 0;  k = k + 1; }
@@ -122,25 +134,45 @@ void syncFrame(int m) {
         v1 = v0 + 1;
         while (v1 < nv) {
             k = v0 * 12 + v1;
-            if (edgeO[k] != 0 || edgeN[k] != 0) {
-                ox0 = EX[v0];  oy0 = EY[v0];
-                ox1 = EX[v1];  oy1 = EY[v1];
-                nx0 = PX[v0];  ny0 = PY[v0];
-                nx1 = PX[v1];  ny1 = PY[v1];
-                if (edgeO[k] != 0 && edgeN[k] != 0) {
-                    if (ox0 != nx0 || oy0 != ny0 || ox1 != nx1 || oy1 != ny1) {
-                        line(nx0, ny0, nx1, ny1, 3);
-                        line(ox0, oy0, ox1, oy1, 0);
-                    }
-                } else if (edgeO[k] != 0) {
-                    line(ox0, oy0, ox1, oy1, 0);
-                } else {
-                    line(nx0, ny0, nx1, ny1, 3);
+            if (edgeO[k] != 0) {
+                if (edgeN[k] == 0 || EX[v0] != PX[v0] || EY[v0] != PY[v0] || EX[v1] != PX[v1] || EY[v1] != PY[v1]) {
+                    line(EX[v0], EY[v0], EX[v1], EY[v1], 0);
                 }
             }
             v1 = v1 + 1;
         }
         v0 = v0 + 1;
+    }
+    v0 = 0;
+    while (v0 < nv) {
+        v1 = v0 + 1;
+        while (v1 < nv) {
+            k = v0 * 12 + v1;
+            if (edgeN[k] != 0) {
+                if (edgeO[k] == 0 || EX[v0] != PX[v0] || EY[v0] != PY[v0] || EX[v1] != PX[v1] || EY[v1] != PY[v1]) {
+                    line(PX[v0], PY[v0], PX[v1], PY[v1], c);
+                }
+            }
+            v1 = v1 + 1;
+        }
+        v0 = v0 + 1;
+    }
+}
+
+void joints(int m) {
+    int i, n, c;
+    n = MVCNT[m];
+    c = 2;
+    if (m != 0) {
+        c = 3;
+    }
+    i = 0;
+    while (i < n) {
+        if (EX[i] != PX[i] || EY[i] != PY[i]) {
+            point(EX[i], EY[i], 0);
+        }
+        point(PX[i], PY[i], c);
+        i = i + 1;
     }
 }
 
@@ -151,16 +183,17 @@ int main() {
     project(curM, a, b);
     wire(curM, 3, 0);
     snapEx();
-    a = a + 3;  b = b + 1;
+    a = a + 2;  b = b + 1;
     project(curM, a, b);
     while (1) {
         vsync();
         syncFrame(drawM);
+        joints(drawM);
         snapEx();
         k = getkey();
         if (k == 67) { curM = curM + 1;  if (curM > 6) curM = 0; }
         if (k == 68) { curM = curM - 1;  if (curM < 0) curM = 6; }
-        a = a + 3;  b = b + 1;
+        a = a + 2;  b = b + 1;
         project(curM, a, b);
         if (curM != drawM) {
             wire(eraseM, 0, 1);
