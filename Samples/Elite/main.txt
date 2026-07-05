@@ -49,7 +49,8 @@ int NLEN[7] = { 5, 10, 5, 6, 8, 8, 8 };
 
 // ── функции ─────────────────────────────────────────────────
 
-void project(int sx[], int sy[], int m, int a, int b) {
+// Проекция в глобальные PX/PY. ХОЛОДНАЯ зона.
+void project(int m, int a, int b) {
     int i, n, base;
     int x, y, z;
     int ca, sa, cb, sb;
@@ -70,14 +71,15 @@ void project(int sx[], int sy[], int m, int a, int b) {
         rz2 = (y * sb + rz * cb) / 256;
 
         zp = rz2 + 340;
-        sx[i] = 160 + (rx * 256) / zp;
-        sy[i] = 132 - (ry * 256) / zp;
+        PX[i] = 160 + (rx * 256) / zp;
+        PY[i] = 132 - (ry * 256) / zp;
 
         i = i + 1;
     }
 }
 
-void drawModel(int sx[], int sy[], int m, int color) {
+// Отрисовка тела по PX/PY (только лицевые грани).
+void drawModel(int m, int c) {
     int f, fend, o, n, j, v0, v1;
     int ux, uy, vx, vy, cross;
 
@@ -86,10 +88,10 @@ void drawModel(int sx[], int sy[], int m, int color) {
     while (f < fend) {
         o = FOFF[f];
         n = FLEN[f];
-        ux = sx[FV[o + 1]] - sx[FV[o]];
-        uy = sy[FV[o + 1]] - sy[FV[o]];
-        vx = sx[FV[o + 2]] - sx[FV[o]];
-        vy = sy[FV[o + 2]] - sy[FV[o]];
+        ux = PX[FV[o + 1]] - PX[FV[o]];
+        uy = PY[FV[o + 1]] - PY[FV[o]];
+        vx = PX[FV[o + 2]] - PX[FV[o]];
+        vy = PY[FV[o + 2]] - PY[FV[o]];
         cross = ux * vy - vx * uy;
 
         if (cross > 0) {
@@ -97,7 +99,7 @@ void drawModel(int sx[], int sy[], int m, int color) {
             while (j < n) {
                 v0 = FV[o + j];
                 v1 = FV[o + (j + 1) % n];
-                line(sx[v0], sy[v0], sx[v1], sy[v1], color);
+                line(PX[v0], PY[v0], PX[v1], PY[v1], c);
                 j = j + 1;
             }
         }
@@ -105,6 +107,7 @@ void drawModel(int sx[], int sy[], int m, int color) {
     }
 }
 
+// Стирание всех рёбер модели m по EX/EY — без отсечения.
 void eraseModel(int m) {
     int f, fend, o, n, j, v0, v1;
 
@@ -206,31 +209,31 @@ void syncFrame(int m) {
     }
 }
 
-void drawGlyph(int gx, int gy, int g, int color) {
-    int r, c, bits, mask, base;
+void drawGlyph(int gx, int gy, int g, int c) {
+    int r, col, bits, mask, base;
     base = g * 7;
     r = 0;
     while (r < 7) {
         bits = FONT[base + r];
-        c = 0;
+        col = 0;
         mask = 16;
-        while (c < 5) {
-            if (bits & mask) point(gx + c, gy + r, color);
+        while (col < 5) {
+            if (bits & mask) point(gx + col, gy + r, c);
             mask = mask / 2;
-            c = c + 1;
+            col = col + 1;
         }
         r = r + 1;
     }
 }
 
-void drawName(int m, int color) {
+void drawName(int m, int c) {
     int i, n, off, gx;
     n = NLEN[m];
     off = NOFF[m];
     gx = 160 - n * 3;
     i = 0;
     while (i < n) {
-        drawGlyph(gx, 246, NAMECH[off + i], color);
+        drawGlyph(gx, 246, NAMECH[off + i], c);
         gx = gx + 6;
         i = i + 1;
     }
@@ -284,8 +287,8 @@ int main() {
     }
 
     curM = 0;  a = 0;  b = 0;  t = 0;
-    project(PX, PY, curM, a, b);
-    drawModel(PX, PY, curM, 3);
+    project(curM, a, b);
+    drawModel(curM, 3);
     i = 0;
     while (i < 12) {
         EX[i] = PX[i];
@@ -296,7 +299,7 @@ int main() {
     drawName(curM, 1);  shownM = curM;
 
     a = a + 3;  b = b + 1;
-    project(PX, PY, curM, a, b);
+    project(curM, a, b);
     drawM = curM;
     starsPlan(t);
 
@@ -323,11 +326,11 @@ int main() {
         a = a + 3;  b = b + 1;
         t = t + 2;
         if (t >= 256) t = t - 256;
-        project(PX, PY, curM, a, b);
+        project(curM, a, b);
 
         if (curM != drawM) {
             eraseModel(eraseM);
-            drawModel(PX, PY, curM, 3);
+            drawModel(curM, 3);
             i = 0;
             while (i < 12) {
                 EX[i] = PX[i];
