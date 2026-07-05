@@ -450,7 +450,7 @@ namespace CompMacro11
                 E("        .PSECT\tDATA, RW, D");
                 foreach (var g in prog.Globals)
                 {
-                    string glbl = ToAsm(g.Name);
+                    string glbl = _globals[g.Name].StaticLabel ?? ToAsm(g.Name);
                     if (!g.Type.IsArray)
                     {
                         // Скалярная глобальная переменная
