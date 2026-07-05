@@ -13,6 +13,8 @@ int PX[12];
 int PY[12];
 int EX[12];
 int EY[12];
+int edgeO[144];
+int edgeN[144];
 
 void snapEx() {
     int i = 0;
@@ -73,10 +75,79 @@ void wire(int m, int c, int ex) {
     }
 }
 
+void syncFrame(int m) {
+    int f, o, n, j, v0, v1, t, k, nv, ux, uy, vx, vy, cross;
+    int ox0, oy0, ox1, oy1, nx0, ny0, nx1, ny1;
+    nv = MVCNT[m];
+    k = 0;
+    while (k < 144) { edgeO[k] = 0;  edgeN[k] = 0;  k = k + 1; }
+    f = MFOFF[m];
+    while (f < MFOFF[m] + MFCNT[m]) {
+        o = FOFF[f];
+        n = FLEN[f];
+        ux = EX[FV[o + 1]] - EX[FV[o]];
+        uy = EY[FV[o + 1]] - EY[FV[o]];
+        vx = EX[FV[o + 2]] - EX[FV[o]];
+        vy = EY[FV[o + 2]] - EY[FV[o]];
+        cross = ux * vy - vx * uy;
+        if (cross > 0) {
+            j = 0;
+            while (j < n) {
+                v0 = FV[o + j];
+                v1 = FV[o + (j + 1) % n];
+                if (v0 > v1) { t = v0;  v0 = v1;  v1 = t; }
+                edgeO[v0 * 12 + v1] = 1;
+                j = j + 1;
+            }
+        }
+        ux = PX[FV[o + 1]] - PX[FV[o]];
+        uy = PY[FV[o + 1]] - PY[FV[o]];
+        vx = PX[FV[o + 2]] - PX[FV[o]];
+        vy = PY[FV[o + 2]] - PY[FV[o]];
+        cross = ux * vy - vx * uy;
+        if (cross > 0) {
+            j = 0;
+            while (j < n) {
+                v0 = FV[o + j];
+                v1 = FV[o + (j + 1) % n];
+                if (v0 > v1) { t = v0;  v0 = v1;  v1 = t; }
+                edgeN[v0 * 12 + v1] = 1;
+                j = j + 1;
+            }
+        }
+        f = f + 1;
+    }
+    v0 = 0;
+    while (v0 < nv) {
+        v1 = v0 + 1;
+        while (v1 < nv) {
+            k = v0 * 12 + v1;
+            if (edgeO[k] != 0 || edgeN[k] != 0) {
+                ox0 = EX[v0];  oy0 = EY[v0];
+                ox1 = EX[v1];  oy1 = EY[v1];
+                nx0 = PX[v0];  ny0 = PY[v0];
+                nx1 = PX[v1];  ny1 = PY[v1];
+                if (edgeO[k] != 0 && edgeN[k] != 0) {
+                    if (ox0 != nx0 || oy0 != ny0 || ox1 != nx1 || oy1 != ny1) {
+                        line(nx0, ny0, nx1, ny1, 3);
+                        line(ox0, oy0, ox1, oy1, 0);
+                    }
+                } else if (edgeO[k] != 0) {
+                    line(ox0, oy0, ox1, oy1, 0);
+                } else {
+                    line(nx0, ny0, nx1, ny1, 3);
+                }
+            }
+            v1 = v1 + 1;
+        }
+        v0 = v0 + 1;
+    }
+}
+
 int main() {
-    int curM, showM, a, b, k;
+    int curM, drawM, eraseM, a, b, k;
     init(0);
-    curM = 0;  showM = 0;  a = 0;  b = 0;
+    curM = 0;  drawM = 0;  eraseM = 0;  a = 0;  b = 0;
     project(curM, a, b);
     wire(curM, 3, 0);
     snapEx();
@@ -84,14 +155,19 @@ int main() {
     project(curM, a, b);
     while (1) {
         vsync();
-        wire(showM, 0, 1);
-        wire(curM, 3, 0);
+        syncFrame(drawM);
         snapEx();
         k = getkey();
         if (k == 67) { curM = curM + 1;  if (curM > 6) curM = 0; }
         if (k == 68) { curM = curM - 1;  if (curM < 0) curM = 6; }
         a = a + 3;  b = b + 1;
         project(curM, a, b);
-        showM = curM;
+        if (curM != drawM) {
+            wire(eraseM, 0, 1);
+            wire(curM, 3, 0);
+            snapEx();
+            eraseM = curM;
+        }
+        drawM = curM;
     }
 }
