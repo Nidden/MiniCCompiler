@@ -15,9 +15,6 @@ int EX[12];
 int EY[12];
 int edgeO[144];
 int edgeN[144];
-int FONT[55] = { 17, 17, 31, 17, 17, 17, 16, 16, 16, 17, 16, 30, 16, 16, 16, 17, 17, 31, 17, 17, 25, 21, 19, 17, 17, 17, 17, 17, 17, 17, 17, 17, 30, 16, 16, 17, 17, 30, 20, 18, 16, 16, 14, 1, 1, 4, 4, 4, 4, 4, 17, 10, 4, 4, 4 };
-int NAMECH[21] = { 9, 2, 9, 5, 1, 9, 6, 7, 8, 6, 10, 9, 0, 4, 0, 1, 5, 7, 9, 3, 7 };
-int NOFF[7] = { 0, 3, 6, 9, 12, 15, 18 };
 
 void snapEx() {
     int i = 0;
@@ -147,32 +144,6 @@ void syncFrame(int m) {
     }
 }
 
-void drawName(int m, int c) {
-    int i, n, off, gx, g, r, col, bits, mask, base;
-    n = 3;
-    off = NOFF[m];
-    gx = 154;
-    i = 0;
-    while (i < n) {
-        g = NAMECH[off + i];
-        base = g * 5;
-        r = 0;
-        while (r < 5) {
-            bits = FONT[base + r];
-            col = 0;
-            mask = 16;
-            while (col < 5) {
-                if (bits & mask) point(gx + col, 252 + r, c);
-                mask = mask / 2;
-                col = col + 1;
-            }
-            r = r + 1;
-        }
-        gx = gx + 6;
-        i = i + 1;
-    }
-}
-
 int main() {
     int curM, drawM, eraseM, a, b, k;
     init(0);
@@ -180,7 +151,6 @@ int main() {
     project(curM, a, b);
     wire(curM, 3, 0);
     snapEx();
-    drawName(curM, 1);
     a = a + 3;  b = b + 1;
     project(curM, a, b);
     while (1) {
@@ -196,7 +166,6 @@ int main() {
             cls(0);
             wire(curM, 3, 0);
             snapEx();
-            drawName(curM, 1);
             eraseM = curM;
         }
         drawM = curM;
