@@ -6,9 +6,12 @@
 //
 //   Управление:  ← / →  — следующее/предыдущее тело
 //
-//   Анти-моргание: в холодной зоне считаем только проекцию
-//   следующего кадра в PX/PY; сразу после vsync — стираем
-//   EX/EY и рисуем PX/PY. Звёзды летят и мерцают.
+//   Анти-моргание (только Mini-C):
+//     • wireframe — дифференциальное обновление рёбер: стираем/
+//       рисуем только переместившиеся линии (канон v0<v1);
+//     • звёзды — план в холодной зоне, в кадре: сначала новые
+//       позиции, потом стирание старых (если сдвинулись);
+//     • vsync — отрисовка только в горячей зоне кадра.
 // ============================================================
 
 void line(int x1, int y1, int x2, int y2, int c);
@@ -35,7 +38,14 @@ int EY[12];
 // ── Летящее звёздное небо: 30 звёзд ─────────────────────────
 int starX[30];
 int starY[30];
+int starOX[30];
+int starOY[30];
+int starNC[30];
 int starSpeed[30];
+
+// Буферы видимости рёбер для syncModel (12 вершин → 144 пары).
+int edgeVisO[144];
+int edgeVisN[144];
 
 // ── Шрифт 5x7 и имена тел ───────────────────────────────────
 int FONT[119] = { 0, 0, 0, 0, 0, 0, 0, 14, 17, 17, 31, 17, 17, 17, 14, 17, 16, 16, 16, 17, 14, 30, 17, 17, 17, 17, 17, 30, 31, 16, 30, 16, 16, 16, 31, 14, 17, 16, 23, 17, 17, 14, 17, 17, 17, 31, 17, 17, 17, 14, 4, 4, 4, 4, 4, 14, 16, 16, 16, 16, 16, 16, 31, 17, 27, 21, 21, 17, 17, 17, 17, 25, 21, 19, 17, 17, 17, 14, 17, 17, 17, 17, 17, 14, 30, 17, 17, 30, 16, 16, 16, 30, 17, 17, 30, 20, 18, 17, 15, 16, 16, 14, 1, 1, 30, 31, 4, 4, 4, 4, 4, 4, 17, 17, 10, 4, 4, 4, 4 };
@@ -72,23 +82,27 @@ void project(int sx[], int sy[], int m, int a, int b) {
     }
 }
 
-// Рисует/стирает тело m из буфера sx/sy цветом color,
-// отсекая задние грани (лицевая грань даёт cross > 0).
+// Векторное произведение грани (для отсечения невидимых).
+int faceCross(int sx[], int sy[], int o) {
+    int ux, uy, vx, vy;
+    ux = sx[FV[o + 1]] - sx[FV[o]];
+    uy = sy[FV[o + 1]] - sy[FV[o]];
+    vx = sx[FV[o + 2]] - sx[FV[o]];
+    vy = sy[FV[o + 2]] - sy[FV[o]];
+    return ux * vy - vx * uy;
+}
+
+// Полная отрисовка/стирание тела (смена модели).
 void drawModel(int sx[], int sy[], int m, int color) {
     int f, fend, o, n, j, v0, v1;
-    int ux, uy, vx, vy, cross;
+    int cross;
 
     f = MFOFF[m];
     fend = f + MFCNT[m];
     while (f < fend) {
         o = FOFF[f];
         n = FLEN[f];
-
-        ux = sx[FV[o + 1]] - sx[FV[o]];
-        uy = sy[FV[o + 1]] - sy[FV[o]];
-        vx = sx[FV[o + 2]] - sx[FV[o]];
-        vy = sy[FV[o + 2]] - sy[FV[o]];
-        cross = ux * vy - vx * uy;
+        cross = faceCross(sx, sy, o);
 
         if (cross > 0) {
             j = 0;
@@ -100,6 +114,72 @@ void drawModel(int sx[], int sy[], int m, int color) {
             }
         }
         f = f + 1;
+    }
+}
+
+// Дифференциальное обновление wireframe без моргания.
+// Сначала помечаем видимые рёбра (канон v0<v1), затем:
+//   • оба кадра — рисуем новое, стираем старое (только если сдвинулось);
+//   • только старое — стираем;
+//   • только новое — рисуем.
+void markVis(int sx[], int sy[], int m, int vis[]) {
+    int f, fend, o, n, j, v0, v1, tmp, key, i;
+
+    i = 0;
+    while (i < 144) { vis[i] = 0;  i = i + 1; }
+
+    f = MFOFF[m];
+    fend = f + MFCNT[m];
+    while (f < fend) {
+        o = FOFF[f];
+        n = FLEN[f];
+        if (faceCross(sx, sy, o) > 0) {
+            j = 0;
+            while (j < n) {
+                v0 = FV[o + j];
+                v1 = FV[o + (j + 1) % n];
+                if (v0 > v1) { tmp = v0;  v0 = v1;  v1 = tmp; }
+                key = v0 * 12 + v1;
+                vis[key] = 1;
+                j = j + 1;
+            }
+        }
+        f = f + 1;
+    }
+}
+
+void syncModel(int oldSx[], int oldSy[], int newSx[], int newSy[], int m) {
+    int v0, v1, key;
+    int ox0, oy0, ox1, oy1, nx0, ny0, nx1, ny1;
+
+    markVis(oldSx, oldSy, m, edgeVisO);
+    markVis(newSx, newSy, m, edgeVisN);
+
+    v0 = 0;
+    while (v0 < 12) {
+        v1 = v0 + 1;
+        while (v1 < 12) {
+            key = v0 * 12 + v1;
+            if (edgeVisO[key] || edgeVisN[key]) {
+                ox0 = oldSx[v0];  oy0 = oldSy[v0];
+                ox1 = oldSx[v1];  oy1 = oldSy[v1];
+                nx0 = newSx[v0];  ny0 = newSy[v0];
+                nx1 = newSx[v1];  ny1 = newSy[v1];
+
+                if (edgeVisO[key] && edgeVisN[key]) {
+                    if (ox0 != nx0 || oy0 != ny0 || ox1 != nx1 || oy1 != ny1) {
+                        line(nx0, ny0, nx1, ny1, 3);
+                        line(ox0, oy0, ox1, oy1, 0);
+                    }
+                } else if (edgeVisO[key]) {
+                    line(ox0, oy0, ox1, oy1, 0);
+                } else {
+                    line(nx0, ny0, nx1, ny1, 3);
+                }
+            }
+            v1 = v1 + 1;
+        }
+        v0 = v0 + 1;
     }
 }
 
@@ -135,19 +215,35 @@ void drawName(int m, int color) {
     }
 }
 
-// Обновляет звёзды: стереть, сдвинуть вниз, мерцнуть, нарисовать.
-void stars(int t) {
-    int i, c;
+// ХОЛОДНАЯ зона: планируем следующие позиции звёзд.
+void starsPlan(int t) {
+    int i;
     i = 0;
     while (i < 30) {
-        point(starX[i], starY[i], 0);
+        starOX[i] = starX[i];
+        starOY[i] = starY[i];
         starY[i] = starY[i] + starSpeed[i];
         if (starY[i] > 242) {
             starY[i] = 8;
             starX[i] = 10 + (i * 37 + t) % 300;
         }
-        c = ((i + t) % 3) + 1;
-        point(starX[i], starY[i], c);
+        starNC[i] = ((i + t) % 3) + 1;
+        i = i + 1;
+    }
+}
+
+// ГОРЯЧАЯ зона: сначала рисуем новые звёзды, потом стираем старые.
+void starsRender() {
+    int i;
+    i = 0;
+    while (i < 30) {
+        point(starX[i], starY[i], starNC[i]);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 30) {
+        if (starOX[i] != starX[i] || starOY[i] != starY[i])
+            point(starOX[i], starOY[i], 0);
         i = i + 1;
     }
 }
@@ -158,10 +254,12 @@ int main() {
 
     init(0);
 
-    i = 0;                          // инициализация звёзд
+    i = 0;
     while (i < 30) {
         starX[i] = 10 + (i * 37) % 300;
         starY[i] = 8 + (i * 53) % 235;
+        starOX[i] = starX[i];
+        starOY[i] = starY[i];
         starSpeed[i] = (i % 3) + 1;
         i = i + 1;
     }
@@ -173,24 +271,27 @@ int main() {
     eraseM = curM;
     drawName(curM, 1);  shownM = curM;
 
-    a = a + 3;  b = b + 1;          // предпосчёт следующего кадра (холодная зона)
+    a = a + 3;  b = b + 1;
     project(PX, PY, curM, a, b);
     drawM = curM;
+    starsPlan(t);
 
     while (1) {
-        vsync();                    // начало кадра
+        vsync();
 
-        // ── ГОРЯЧАЯ зона: стереть прошлый, нарисовать готовый ──
-        drawModel(EX, EY, eraseM, 0);
-        drawModel(PX, PY, drawM, 3);
+        if (eraseM != drawM) {
+            drawModel(EX, EY, eraseM, 0);
+            drawModel(PX, PY, drawM, 3);
+        } else {
+            syncModel(EX, EY, PX, PY, drawM);
+        }
         i = 0;  while (i < 12) { EX[i] = PX[i];  EY[i] = PY[i];  i = i + 1; }
         eraseM = drawM;
-        stars(t);
+        starsRender();
 
-        // ── ХОЛОДНАЯ зона: ввод + ТОЛЬКО проекция следующего кадра ──
         k = getkey();
-        if (k == 67) { curM = curM + 1;  if (curM > 6) curM = 0; }   // →
-        if (k == 68) { curM = curM - 1;  if (curM < 0) curM = 6; }   // ←
+        if (k == 67) { curM = curM + 1;  if (curM > 6) curM = 0; }
+        if (k == 68) { curM = curM - 1;  if (curM < 0) curM = 6; }
         if (curM != shownM) {
             drawName(shownM, 0);
             drawName(curM, 1);
@@ -201,6 +302,7 @@ int main() {
         t = t + 2;  if (t >= 256) t = t - 256;
         project(PX, PY, curM, a, b);
         drawM = curM;
+        starsPlan(t);
     }
 
     return 0;
