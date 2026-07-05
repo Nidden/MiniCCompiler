@@ -65,8 +65,7 @@ void project(int sx[], int sy[], int m, int a, int b) {
     ca = cos256(a);  sa = sin256(a);
     cb = cos256(b);  sb = sin256(b);
 
-    i = 0;
-    while (i < n) {
+    for (i = 0; i < n; i++) {
         x = VX[base + i];  y = VY[base + i];  z = VZ[base + i];
 
         rx  = (x * ca - z * sa) / 256;
@@ -77,8 +76,6 @@ void project(int sx[], int sy[], int m, int a, int b) {
         zp = rz2 + 340;
         sx[i] = 160 + (rx * 256) / zp;
         sy[i] = 132 - (ry * 256) / zp;
-
-        i = i + 1;
     }
 }
 
@@ -87,9 +84,8 @@ void drawModel(int sx[], int sy[], int m, int color) {
     int f, fend, o, n, j, v0, v1;
     int ux, uy, vx, vy, cross;
 
-    f = MFOFF[m];
-    fend = f + MFCNT[m];
-    while (f < fend) {
+    fend = MFOFF[m] + MFCNT[m];
+    for (f = MFOFF[m]; f < fend; f++) {
         o = FOFF[f];
         n = FLEN[f];
         ux = sx[FV[o + 1]] - sx[FV[o]];
@@ -99,102 +95,81 @@ void drawModel(int sx[], int sy[], int m, int color) {
         cross = ux * vy - vx * uy;
 
         if (cross > 0) {
-            j = 0;
-            while (j < n) {
+            for (j = 0; j < n; j++) {
                 v0 = FV[o + j];
                 v1 = FV[o + (j + 1) % n];
                 line(sx[v0], sy[v0], sx[v1], sy[v1], color);
-                j = j + 1;
             }
         }
-        f = f + 1;
     }
 }
 
-// Дифференциальное обновление кадра. Работает с глобальными EX/EY/PX/PY
-// (без вложенных вызовов с массивами-параметрами — экономия стека УКНЦ).
+// Дифференциальное обновление кадра. Глобальные EX/EY/PX/PY.
 void syncFrame(int m) {
-    int f, fend, o, n, j, v0, v1, tmp, key, i;
+    int f, fend, o, n, j, v0, v1, tmp, key;
     int ux, uy, vx, vy, cross;
     int ox0, oy0, ox1, oy1, nx0, ny0, nx1, ny1;
 
-    i = 0;
-    while (i < 144) {
-        edgeOld[i] = 0;
-        edgeNew[i] = 0;
-        i = i + 1;
+    for (key = 0; key < 144; key++) {
+        edgeOld[key] = 0;
+        edgeNew[key] = 0;
     }
 
-    f = MFOFF[m];
-    fend = f + MFCNT[m];
-    while (f < fend) {
+    fend = MFOFF[m] + MFCNT[m];
+    for (f = MFOFF[m]; f < fend; f++) {
         o = FOFF[f];
         n = FLEN[f];
+
         ux = EX[FV[o + 1]] - EX[FV[o]];
         uy = EY[FV[o + 1]] - EY[FV[o]];
         vx = EX[FV[o + 2]] - EX[FV[o]];
         vy = EY[FV[o + 2]] - EY[FV[o]];
         cross = ux * vy - vx * uy;
         if (cross > 0) {
-            j = 0;
-            while (j < n) {
+            for (j = 0; j < n; j++) {
                 v0 = FV[o + j];
                 v1 = FV[o + (j + 1) % n];
                 if (v0 > v1) { tmp = v0;  v0 = v1;  v1 = tmp; }
                 edgeOld[v0 * 12 + v1] = 1;
-                j = j + 1;
             }
         }
-        f = f + 1;
-    }
 
-    f = MFOFF[m];
-    while (f < fend) {
-        o = FOFF[f];
-        n = FLEN[f];
         ux = PX[FV[o + 1]] - PX[FV[o]];
         uy = PY[FV[o + 1]] - PY[FV[o]];
         vx = PX[FV[o + 2]] - PX[FV[o]];
         vy = PY[FV[o + 2]] - PY[FV[o]];
         cross = ux * vy - vx * uy;
         if (cross > 0) {
-            j = 0;
-            while (j < n) {
+            for (j = 0; j < n; j++) {
                 v0 = FV[o + j];
                 v1 = FV[o + (j + 1) % n];
                 if (v0 > v1) { tmp = v0;  v0 = v1;  v1 = tmp; }
                 edgeNew[v0 * 12 + v1] = 1;
-                j = j + 1;
             }
         }
-        f = f + 1;
     }
 
-    v0 = 0;
-    while (v0 < 12) {
-        v1 = v0 + 1;
-        while (v1 < 12) {
+    for (v0 = 0; v0 < 12; v0++) {
+        for (v1 = v0 + 1; v1 < 12; v1++) {
             key = v0 * 12 + v1;
-            if (edgeOld[key] || edgeNew[key]) {
-                ox0 = EX[v0];  oy0 = EY[v0];
-                ox1 = EX[v1];  oy1 = EY[v1];
-                nx0 = PX[v0];  ny0 = PY[v0];
-                nx1 = PX[v1];  ny1 = PY[v1];
+            if (!edgeOld[key] && !edgeNew[key]) continue;
 
-                if (edgeOld[key] && edgeNew[key]) {
-                    if (ox0 != nx0 || oy0 != ny0 || ox1 != nx1 || oy1 != ny1) {
-                        line(nx0, ny0, nx1, ny1, 3);
-                        line(ox0, oy0, ox1, oy1, 0);
-                    }
-                } else if (edgeOld[key]) {
-                    line(ox0, oy0, ox1, oy1, 0);
-                } else {
+            ox0 = EX[v0];  oy0 = EY[v0];
+            ox1 = EX[v1];  oy1 = EY[v1];
+            nx0 = PX[v0];  ny0 = PY[v0];
+            nx1 = PX[v1];  ny1 = PY[v1];
+
+            if (edgeOld[key] && edgeNew[key]) {
+                if (ox0 != nx0 || oy0 != ny0 || ox1 != nx1 || oy1 != ny1) {
                     line(nx0, ny0, nx1, ny1, 3);
+                    line(ox0, oy0, ox1, oy1, 0);
                 }
+            } else if (edgeOld[key]) {
+                line(ox0, oy0, ox1, oy1, 0);
+            } else {
+                line(nx0, ny0, nx1, ny1, 3);
             }
-            v1 = v1 + 1;
         }
-        v0 = v0 + 1;
     }
 }
 
@@ -202,17 +177,13 @@ void syncFrame(int m) {
 void drawGlyph(int gx, int gy, int g, int color) {
     int r, c, bits, mask, base;
     base = g * 7;
-    r = 0;
-    while (r < 7) {
+    for (r = 0; r < 7; r++) {
         bits = FONT[base + r];
-        c = 0;
         mask = 16;
-        while (c < 5) {
+        for (c = 0; c < 5; c++) {
             if (bits & mask) point(gx + c, gy + r, color);
             mask = mask / 2;
-            c = c + 1;
         }
-        r = r + 1;
     }
 }
 
@@ -222,44 +193,35 @@ void drawName(int m, int color) {
     n = NLEN[m];
     off = NOFF[m];
     gx = 160 - n * 3;
-    i = 0;
-    while (i < n) {
+    for (i = 0; i < n; i++) {
         drawGlyph(gx, 246, NAMECH[off + i], color);
-        gx = gx + 6;
-        i = i + 1;
+        gx += 6;
     }
 }
 
 // ХОЛОДНАЯ зона: планируем следующие позиции звёзд.
 void starsPlan(int t) {
     int i;
-    i = 0;
-    while (i < 30) {
+    for (i = 0; i < 30; i++) {
         starOX[i] = starX[i];
         starOY[i] = starY[i];
-        starY[i] = starY[i] + starSpeed[i];
+        starY[i] += starSpeed[i];
         if (starY[i] > 242) {
             starY[i] = 8;
             starX[i] = 10 + (i * 37 + t) % 300;
         }
         starNC[i] = ((i + t) % 3) + 1;
-        i = i + 1;
     }
 }
 
 // ГОРЯЧАЯ зона: сначала рисуем новые звёзды, потом стираем старые.
 void starsRender() {
     int i;
-    i = 0;
-    while (i < 30) {
+    for (i = 0; i < 30; i++)
         point(starX[i], starY[i], starNC[i]);
-        i = i + 1;
-    }
-    i = 0;
-    while (i < 30) {
+    for (i = 0; i < 30; i++) {
         if (starOX[i] != starX[i] || starOY[i] != starY[i])
             point(starOX[i], starOY[i], 0);
-        i = i + 1;
     }
 }
 
@@ -269,29 +231,25 @@ int main() {
 
     init(0);
 
-    i = 0;
-    while (i < 30) {
+    for (i = 0; i < 30; i++) {
         starX[i] = 10 + (i * 37) % 300;
         starY[i] = 8 + (i * 53) % 235;
         starOX[i] = starX[i];
         starOY[i] = starY[i];
         starSpeed[i] = (i % 3) + 1;
-        i = i + 1;
     }
 
     curM = 0;  a = 0;  b = 0;  t = 0;
     project(PX, PY, curM, a, b);
     drawModel(PX, PY, curM, 3);
-    i = 0;
-    while (i < 12) {
+    for (i = 0; i < 12; i++) {
         EX[i] = PX[i];
         EY[i] = PY[i];
-        i = i + 1;
     }
     eraseM = curM;
     drawName(curM, 1);  shownM = curM;
 
-    a = a + 3;  b = b + 1;
+    a += 3;  b++;
     project(PX, PY, curM, a, b);
     drawM = curM;
     starsPlan(t);
@@ -305,26 +263,24 @@ int main() {
         } else {
             syncFrame(drawM);
         }
-        i = 0;
-        while (i < 12) {
+        for (i = 0; i < 12; i++) {
             EX[i] = PX[i];
             EY[i] = PY[i];
-            i = i + 1;
         }
         eraseM = drawM;
         starsRender();
 
         k = getkey();
-        if (k == 67) { curM = curM + 1;  if (curM > 6) curM = 0; }
-        if (k == 68) { curM = curM - 1;  if (curM < 0) curM = 6; }
+        if (k == 67) { curM++;  if (curM > 6) curM = 0; }
+        if (k == 68) { curM--;  if (curM < 0) curM = 6; }
         if (curM != shownM) {
             drawName(shownM, 0);
             drawName(curM, 1);
             shownM = curM;
         }
 
-        a = a + 3;  b = b + 1;
-        t = t + 2;  if (t >= 256) t = t - 256;
+        a += 3;  b++;
+        t += 2;  if (t >= 256) t -= 256;
         project(PX, PY, curM, a, b);
         drawM = curM;
         starsPlan(t);
