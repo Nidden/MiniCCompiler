@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>minic</AssemblyName>
+    <RootNamespace>CompMacro11</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../CompMacro11/AST.cs" />
+    <Compile Include="../CompMacro11/Lexer.cs" />
+    <Compile Include="../CompMacro11/Parser.cs" />
+    <Compile Include="../CompMacro11/CodeGen.cs" />
+    <Compile Include="../CompMacro11/CodeGen.RuntimeCpu.cs" />
+    <Compile Include="../CompMacro11/CodeGen.RuntimeGame.cs" />
+    <Compile Include="../CompMacro11/CodeGen.DiskIO.cs" />
+    <Compile Include="../CompMacro11/Peephole.cs" />
+    <Compile Include="../CompMacro11/Stdlib.cs" />
+    <Compile Include="Main.cs" />
+  </ItemGroup>
+
+</Project>

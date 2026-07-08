@@ -822,6 +822,74 @@ namespace CompMacro11
             E("        MOV\t(SP)+, R5");
             E("        RTS\tPC");
             E("");
+            // ── RTPPRECT — pp_rect(x,y,w,h,c): контур прямоугольника на ПП ──
+            E("; RTPPRECT — pp_rect(x,y,w,h,c): контур (4 линии через RTPPLN).");
+            E("RTPPRECT:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\t4.(R5), R1");           // x
+            E("        ADD\t8.(R5), R1");           // x+w
+            E("        DEC\tR1");                    // right = x+w-1
+            E("        MOV\t6.(R5), R3");           // y
+            E("        ADD\t10.(R5), R3");          // y+h
+            E("        DEC\tR3");                    // bottom = y+h-1
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\t6.(R5), -(SP)");         // y1 = y
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\t6.(R5), -(SP)");         // y0 = y
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR3, -(SP)");             // y1 = bottom
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\tR3, -(SP)");             // y0 = bottom
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR3, -(SP)");             // y1 = bottom
+            E("        MOV\t4.(R5), -(SP)");         // x1 = x
+            E("        MOV\t6.(R5), -(SP)");         // y0 = y
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\t6.(R5), -(SP)");         // y1 = y
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\t6.(R5), -(SP)");         // y0 = y
+            E("        MOV\tR1, -(SP)");             // x0 = right
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
+            // ── RTPPFRCT — pp_fill_rect(x,y,w,h,c): залитый прямоугольник на ПП ──
+            E("; RTPPFRCT — pp_fill_rect(x,y,w,h,c): заливка горизонтальными линиями.");
+            E("RTPPFRCT:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\t4.(R5), R1");           // x
+            E("        ADD\t8.(R5), R1");           // x+w
+            E("        DEC\tR1");                    // right = x+w-1
+            E("        MOV\t6.(R5), R2");           // row = y
+            E("        MOV\t6.(R5), R3");           // y
+            E("        ADD\t10.(R5), R3");          // y+h
+            E("        DEC\tR3");                    // bottom = y+h-1
+            E("RTFRLP: CMP\tR2, R3");               // row > bottom?
+            E("        BGT\tRTFRDN");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR2, -(SP)");             // y1 = row
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\tR2, -(SP)");             // y0 = row
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        INC\tR2");                    // row++
+            E("        BR\tRTFRLP");
+            E("RTFRDN: MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
             // ── RTPPSP — pp_sprite(x,y,w,h,ptr): команда спрайта резиденту ──
             E("; RTPPSP — pp_sprite(x,y,w,h,ptr): отправить команду спрайта.");
             E("RTPPSP:");

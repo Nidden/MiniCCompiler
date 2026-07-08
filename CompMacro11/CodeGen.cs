@@ -39,7 +39,7 @@ namespace CompMacro11
         // Функции, недоступные в режиме ЦП (всё ПП-шное):
         static readonly System.Collections.Generic.HashSet<string> CpuForbidden =
             new System.Collections.Generic.HashSet<string> {
-                "ppu_init","pp_init","pp_point","pp_line","pp_sprite","pp_stop",
+                "ppu_init","pp_init","pp_point","pp_line","pp_rect","pp_fill_rect","pp_sprite","pp_stop",
                 "pp_spr","pp_blit","vpoke","pp_peek","vload","pp_vspr"
             };
 
@@ -109,7 +109,7 @@ namespace CompMacro11
             "waitkey", "getkey",
             "point", "line", "rect", "fill_rect", "fill_dither", "circle", "print", "printnum", "getTimer", "random", "gotoxy", "setTextColor", "setPlaceColor", "setCursorColor",
             "vsync", "sin256", "cos256", "abs", "min", "max", "clamp",
-            "ppu_init", "pp_init", "pp_point", "pp_line", "pp_sprite", "pp_stop",
+            "ppu_init", "pp_init", "pp_point", "pp_line", "pp_rect", "pp_fill_rect", "pp_sprite", "pp_stop",
             "spr", "pp_spr", "pp_blit", "vpoke", "pp_peek", "vload", "pp_vspr",
             "fload", "fsave", "print_buf", "str_to_buf"
         };
@@ -2864,6 +2864,32 @@ namespace CompMacro11
                     GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y0
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x0
                     EI("JSR", "PC, RTPPLN");
+                    EI("ADD", "#10., SP");
+                    break;
+
+                case "pp_rect":
+                    if (c.Args.Count != 5)
+                        throw new Exception($"Строка {c.Line}: pp_rect(x,y,w,h,c) требует 5 аргументов");
+                    EC($"pp_rect({ArgStr(c)}): контур прямоугольника на ПП");
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // color
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTPPRECT");
+                    EI("ADD", "#10., SP");
+                    break;
+
+                case "pp_fill_rect":
+                    if (c.Args.Count != 5)
+                        throw new Exception($"Строка {c.Line}: pp_fill_rect(x,y,w,h,c) требует 5 аргументов");
+                    EC($"pp_fill_rect({ArgStr(c)}): залитый прямоугольник на ПП");
+                    GenExpr(c.Args[4]); EI("MOV", "R0, -(SP)"); // color
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // h
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // w
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTPPFRCT");
                     EI("ADD", "#10., SP");
                     break;
 
