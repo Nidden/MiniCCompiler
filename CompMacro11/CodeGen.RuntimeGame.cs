@@ -153,9 +153,7 @@ namespace CompMacro11
             E("; RTSPR — sprite(x,y,w,h,ptr)");
             E(";   x,y в пикселях. w в пикселях кратно 8. h строк.");
             E(";   x кратен 8: быстрый путь — прямое копирование слов.");
-            E(";   x не кратен 8: буферный путь — строка в SPBUF[9],");
-            E(";     сдвиг вправо на s=x&7 бит через цепочку ROR,");
-            E(";     затем вывод w/8+1 слов. Ширина спрайта <= 64px.");
+            E(";   x не кратен 8: попиксельный путь через PPDOT (без наезда на октеты).");
             E("RTSPR:");
             E("        MOV	R5, -(SP)");
             E("        MOV	SP, R5");
@@ -822,6 +820,74 @@ namespace CompMacro11
             E("        MOV\t(SP)+, R5");
             E("        RTS\tPC");
             E("");
+            // ── RTPPRECT — pp_rect(x,y,w,h,c): контур прямоугольника на ПП ──
+            E("; RTPPRECT — pp_rect(x,y,w,h,c): контур (4 линии через RTPPLN).");
+            E("RTPPRECT:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\t4.(R5), R1");           // x
+            E("        ADD\t8.(R5), R1");           // x+w
+            E("        DEC\tR1");                    // right = x+w-1
+            E("        MOV\t6.(R5), R3");           // y
+            E("        ADD\t10.(R5), R3");          // y+h
+            E("        DEC\tR3");                    // bottom = y+h-1
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\t6.(R5), -(SP)");         // y1 = y
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\t6.(R5), -(SP)");         // y0 = y
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR3, -(SP)");             // y1 = bottom
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\tR3, -(SP)");             // y0 = bottom
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR3, -(SP)");             // y1 = bottom
+            E("        MOV\t4.(R5), -(SP)");         // x1 = x
+            E("        MOV\t6.(R5), -(SP)");         // y0 = y
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\t6.(R5), -(SP)");         // y1 = y
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\t6.(R5), -(SP)");         // y0 = y
+            E("        MOV\tR1, -(SP)");             // x0 = right
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
+            // ── RTPPFRCT — pp_fill_rect(x,y,w,h,c): залитый прямоугольник на ПП ──
+            E("; RTPPFRCT — pp_fill_rect(x,y,w,h,c): заливка горизонтальными линиями.");
+            E("RTPPFRCT:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\t4.(R5), R1");           // x
+            E("        ADD\t8.(R5), R1");           // x+w
+            E("        DEC\tR1");                    // right = x+w-1
+            E("        MOV\t6.(R5), R2");           // row = y
+            E("        MOV\t6.(R5), R3");           // y
+            E("        ADD\t10.(R5), R3");          // y+h
+            E("        DEC\tR3");                    // bottom = y+h-1
+            E("RTFRLP: CMP\tR2, R3");               // row > bottom?
+            E("        BGT\tRTFRDN");
+            E("        MOV\t12.(R5), -(SP)");        // color
+            E("        MOV\tR2, -(SP)");             // y1 = row
+            E("        MOV\tR1, -(SP)");             // x1 = right
+            E("        MOV\tR2, -(SP)");             // y0 = row
+            E("        MOV\t4.(R5), -(SP)");         // x0 = x
+            E("        JSR\tPC, RTPPLN");
+            E("        ADD\t#10., SP");
+            E("        INC\tR2");                    // row++
+            E("        BR\tRTFRLP");
+            E("RTFRDN: MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
             // ── RTPPSP — pp_sprite(x,y,w,h,ptr): команда спрайта резиденту ──
             E("; RTPPSP — pp_sprite(x,y,w,h,ptr): отправить команду спрайта.");
             E("RTPPSP:");
@@ -1201,129 +1267,98 @@ namespace CompMacro11
             E("        TST\t(SP)+");               // снять шаг строки
             E("        RTS\tPC");
             E("");
-            // ── PPSPX — вывод спрайта с ПРОИЗВОЛЬНЫМ x (перенос буферного пути RTSPS с ЦП) ──
-            // Схема ЦП один-в-один: строка копируется в буфер PSBUF, сдвигается
-            // ROLB-цепочками на s=x&7 бит, выводится words+1 октетов.
-            // Отличия от ЦП только технические: чтение строки из памяти ЦП косвенно
-            // (177010/177014), ТРИ ROLB-цепочки (план0/план1/план2 — формат 2 сл/октет),
-            // вывод через 177010/177012/177014, адрес буфера через PC (код перемещаемый).
+            // ── PPSPX — попиксельный вывод при x не кратном 8 ─────────────
+            // Каждый пиксель через PPDOT (маска 177024) — соседние октеты не трогаем.
+            // Формат 8цв: 2 слова/октет (план0, планы1&2), цвет 0..7 = 3 бита.
             E("PPSPX:");
-            E("        MOV\t#<PPSY/2>, @#177010");
-            E("        MOV\t@#177014, R1");
-            E("        MOV\t#<DSPST/2>, R2");
-            E("        ADD\tR1, R2");
-            E("        MOV\tR2, @#177010");
-            E("        MOV\t@#177014, R5");
             E("        MOV\t#<PPSX/2>, @#177010");
-            E("        MOV\t@#177014, R0");
-            E("        MOV\tR0, R1");
-            E("        BIC\t#177770, R1");
-            E("        ASR\tR0");
-            E("        ASR\tR0");
-            E("        ASR\tR0");
-            E("        ADD\tR0, R5");
+            E("        MOV\t@#177014, -(SP)");        // base_x → SP+6
+            E("        MOV\t#<PPSY/2>, @#177010");
+            E("        MOV\t@#177014, -(SP)");        // base_y → SP+4
             E("        MOV\t#<PPSW/2>, @#177010");
-            E("        MOV\t@#177014, R2");
-            E("        ASR\tR2");
-            E("        ASR\tR2");
-            E("        ASR\tR2");
+            E("        MOV\t@#177014, -(SP)");        // w → SP+2
             E("        MOV\t#<PPSH/2>, @#177010");
-            E("        MOV\t@#177014, R3");
+            E("        MOV\t@#177014, -(SP)");        // h → SP+0
             E("        MOV\t#<PPSPTR/2>, @#177010");
-            E("        MOV\t@#177014, R4");
-            E("        MOV\t#80., R0");
-            E("        SUB\tR2, R0");
-            E("        DEC\tR0");
-            E("        MOV\tR1, -(SP)");
-            E("        MOV\tR0, -(SP)");
-            E("        MOV\tR3, -(SP)");
-            E("PSXL1:");
+            E("        MOV\t@#177014, R4");          // rowptr
+            E("        CLR\tR3");                   // row
+            E("PSPXPY: CMP\tR3, (SP)");
+            E("        BGE\tPSPXDN");
+            E("        CLR\tR2");                   // col
+            E("PSPXPX: CMP\tR2, 2(SP)");
+            E("        BGE\tPSPXNY");
+            E("        MOV\tR4, R0");
             E("        MOV\tR2, R1");
-            E("        MOV\tPC, R0");
-            E("        ADD\t#PSBUF-., R0");
-            E("PSXC1:  MOV\tR4, @#177010");
-            E("        MOV\t@#177014, (R0)+");
-            E("        INC\tR4");
-            E("        MOV\tR4, @#177010");
-            E("        MOV\t@#177014, (R0)+");
-            E("        INC\tR4");
-            E("        DEC\tR1");
-            E("        BNE\tPSXC1");
-            E("        CLR\t(R0)+");
-            E("        CLR\t(R0)");
-            E("        MOV\t4.(SP), R1");
-            E("        BEQ\tPSXE1");
-            E("PSXS1:  CLC");
-            E("        ROLB\tPSBUF+0.");
-            E("        ROLB\tPSBUF+4.");
-            E("        ROLB\tPSBUF+8.");
-            E("        ROLB\tPSBUF+12.");
-            E("        ROLB\tPSBUF+16.");
-            E("        ROLB\tPSBUF+20.");
-            E("        ROLB\tPSBUF+24.");
-            E("        ROLB\tPSBUF+28.");
-            E("        ROLB\tPSBUF+32.");
-            E("        ROLB\tPSBUF+36.");
-            E("        ROLB\tPSBUF+40.");
-            E("        ROLB\tPSBUF+44.");
-            E("        ROLB\tPSBUF+48.");
-            E("        ROLB\tPSBUF+52.");
-            E("        ROLB\tPSBUF+56.");
-            E("        ROLB\tPSBUF+60.");
-            E("        CLC");
-            E("        ROLB\tPSBUF+2.");
-            E("        ROLB\tPSBUF+6.");
-            E("        ROLB\tPSBUF+10.");
-            E("        ROLB\tPSBUF+14.");
-            E("        ROLB\tPSBUF+18.");
-            E("        ROLB\tPSBUF+22.");
-            E("        ROLB\tPSBUF+26.");
-            E("        ROLB\tPSBUF+30.");
-            E("        ROLB\tPSBUF+34.");
-            E("        ROLB\tPSBUF+38.");
-            E("        ROLB\tPSBUF+42.");
-            E("        ROLB\tPSBUF+46.");
-            E("        ROLB\tPSBUF+50.");
-            E("        ROLB\tPSBUF+54.");
-            E("        ROLB\tPSBUF+58.");
-            E("        ROLB\tPSBUF+62.");
-            E("        CLC");
-            E("        ROLB\tPSBUF+3.");
-            E("        ROLB\tPSBUF+7.");
-            E("        ROLB\tPSBUF+11.");
-            E("        ROLB\tPSBUF+15.");
-            E("        ROLB\tPSBUF+19.");
-            E("        ROLB\tPSBUF+23.");
-            E("        ROLB\tPSBUF+27.");
-            E("        ROLB\tPSBUF+31.");
-            E("        ROLB\tPSBUF+35.");
-            E("        ROLB\tPSBUF+39.");
-            E("        ROLB\tPSBUF+43.");
-            E("        ROLB\tPSBUF+47.");
-            E("        ROLB\tPSBUF+51.");
-            E("        ROLB\tPSBUF+55.");
-            E("        ROLB\tPSBUF+59.");
-            E("        ROLB\tPSBUF+63.");
-            E("        DEC\tR1");
-            E("        BEQ\tPSXE1");
-            E("        JMP\tPSXS1");
-            E("PSXE1:  MOV\tR2, R1");
-            E("        INC\tR1");
-            E("        MOV\tPC, R0");
-            E("        ADD\t#PSBUF-., R0");
-            E("PSXO1:  MOV\tR5, @#177010");
-            E("        MOV\t(R0)+, @#177012");
-            E("        MOV\t(R0)+, @#177014");
-            E("        INC\tR5");
-            E("        DEC\tR1");
-            E("        BNE\tPSXO1");
-            E("        ADD\t2.(SP), R5");
-            E("        DEC\t0.(SP)");
-            E("        BEQ\tPSXL3");
-            E("        JMP\tPSXL1");
-            E("PSXL3:  TST\t(SP)+");
-            E("        TST\t(SP)+");
-            E("        TST\t(SP)+");
+            E("        ASR\tR1");
+            E("        ASR\tR1");
+            E("        ASR\tR1");
+            E("        ASL\tR1");
+            E("        ADD\tR1, R0");               // адрес план0
+            E("        MOV\tR0, @#177010");
+            E("        MOV\t@#177014, R0");         // plan0
+            E("        MOV\tR0, -(SP)");
+            E("        INC\tR0");
+            E("        MOV\tR0, @#177010");
+            E("        MOV\t@#177014, R0");         // plan12
+            E("        MOV\tR0, -(SP)");            // SP+0=plan12, SP+2=plan0
+            E("        MOV\tR2, R0");
+            E("        BIC\t#177770, R0");          // bit
+            E("        MOV\t2(SP), R1");            // plan0
+            E("        MOV\tR0, R5");               // bit → R5
+            E("        TST\tR5");
+            E("        BEQ\tPSPXU0");
+            E("PSPXSH0: ASR\tR1");
+            E("        DEC\tR5");
+            E("        BNE\tPSPXSH0");
+            E("PSPXU0: BIC\t#177776, R1");         // p0
+            E("        MOV\tR2, R5");
+            E("        BIC\t#177770, R5");          // bit
+            E("        MOVB\t(SP), R0");            // plan12 low = plan1
+            E("        TST\tR5");
+            E("        BEQ\tPSPXU1");
+            E("PSPXSH1: ASR\tR0");
+            E("        DEC\tR5");
+            E("        BNE\tPSPXSH1");
+            E("PSPXU1: BIC\t#177776, R0");
+            E("        ASL\tR0");
+            E("        ADD\tR0, R1");              // p0|(p1<<1)
+            E("        MOV\tR2, R5");
+            E("        BIC\t#177770, R5");
+            E("        MOV\t(SP), R0");              // plan12 → plan2 в старшем байте
+            E("        SWAB\tR0");
+            E("        BIC\t#177400, R0");
+            E("        TST\tR5");
+            E("        BEQ\tPSPXU2");
+            E("PSPXSH2: ASR\tR0");
+            E("        DEC\tR5");
+            E("        BNE\tPSPXSH2");
+            E("PSPXU2: BIC\t#177776, R0");
+            E("        ASL\tR0");
+            E("        ASL\tR0");                  // p2<<2
+            E("        ADD\tR0, R1");              // R1 = color 0..7
+            E("        ADD\t#4., SP");              // снять plan12/plan0
+            E("        MOV\t#<PPPC/2>, @#177010");
+            E("        MOV\tR1, @#177014");
+            E("        MOV\t#<PPPY/2>, @#177010");
+            E("        MOV\t4.(SP), R0");           // base_y
+            E("        ADD\tR3, R0");
+            E("        MOV\tR0, @#177014");
+            E("        MOV\t#<PPPX/2>, @#177010");
+            E("        MOV\t6.(SP), R0");           // base_x
+            E("        ADD\tR2, R0");
+            E("        MOV\tR0, @#177014");
+            E("        JSR\tPC, PPDOT");
+            E("        INC\tR2");
+            E("        BR\tPSPXPX");
+            E("PSPXNY: MOV\t2(SP), R0");           // stride = (w>>3)*2 слов
+            E("        ASR\tR0");
+            E("        ASR\tR0");
+            E("        ASR\tR0");
+            E("        ASL\tR0");
+            E("        ADD\tR0, R4");
+            E("        INC\tR3");
+            E("        BR\tPSPXPY");
+            E("PSPXDN: ADD\t#8., SP");
             E("        RTS\tPC");
             // ── PPBLT — блит: копия прямоугольника VRAM→VRAM, все 3 плана ──
             //   Параметры (память ЦП): PPBSX,PPBSY (источник), PPBW (пиксели,
