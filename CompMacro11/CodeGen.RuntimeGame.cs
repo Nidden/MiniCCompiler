@@ -776,9 +776,6 @@ namespace CompMacro11
             E("        MOV\tR5, -(SP)");
             E("        MTPS\t#340");              // запрет прерываний ЦП
             E("        CLR\tPPCMD2");             // команда = ждать
-            // обнулить указатели очереди спрайтов (head=tail=0 → пусто)
-            E("        CLR\tSQHEAD");
-            E("        CLR\tSQTAIL");
             E("        MOV\t#<PPREND-PPRES>/2, PPACP2"); // длина для allocate
             E("        MOV\t#<PPREND-PPRES>/2, PPLEN2");
             E("        MOVB\t#1, PPCMD2B");        // выделить
@@ -931,50 +928,6 @@ namespace CompMacro11
             E("        MOV\t(SP)+, R5");
             E("        RTS\tPC");
             E("");
-            // ── RTSQPUT — pp_spr_q(x,y,ptr): положить спрайт в ОЧЕРЕДЬ ──
-            //   ЦП пишет слот (x,y,ptr) в SQBUF[head], двигает head, НЕ ЖДЁТ.
-            //   Слот = 3 слова. head/tail — индексы 0..15 (кольцо на 16).
-            //   Если очередь полна (head+1==tail) — ждём место (редкий случай).
-            E("; RTSQPUT — pp_spr_q(x,y,ptr): положить спрайт в очередь (не ждать).");
-            E("RTSQPUT:");
-            E("        MOV\tR5, -(SP)");
-            E("        MOV\tSP, R5");
-            E("        MOV\tR1, -(SP)");
-            E("        MOV\tR2, -(SP)");
-            E("        MOV\tR3, -(SP)");
-            E("        MOV\tR4, -(SP)");
-            // ждать если очередь полна: (head+1)&15 == tail
-            E("RTSQP1: MOV\tSQHEAD, R1");
-            E("        INC\tR1");
-            E("        BIC\t#177760, R1");          // (head+1)&15
-            E("        CMP\tR1, SQTAIL");
-            E("        BEQ\tRTSQP1");               // полна — крутимся (редко)
-            // адрес слота head в SQBUF: SQBUF + head*3 (в словах, ЦП-адрес)
-            E("        MOV\tSQHEAD, R2");
-            E("        MOV\tR2, R3");
-            E("        ASL\tR3");
-            E("        ADD\tR2, R3");               // head*3
-            E("        MOV\t#SQBUF, R2");
-            E("        ADD\tR3, R2");               // R2 = адрес слота (ЦП)
-            E("        MOV\t6.(R5), (R2)+");        // x  → слот[0]
-            E("        MOV\t8.(R5), (R2)+");        // y  → слот[1]
-            E("        MOV\t10.(R5), (R2)");        // ptr → слот[2]
-            E("        MOV\tR1, SQHEAD");           // head = (head+1)&15
-            E("        MOV\t(SP)+, R4");
-            E("        MOV\t(SP)+, R3");
-            E("        MOV\t(SP)+, R2");
-            E("        MOV\t(SP)+, R1");
-            E("        MOV\t(SP)+, R5");
-            E("        RTS\tPC");
-            E("");
-            // ── RTSQFLUSH — pp_flush(): ждать пока очередь опустеет ──
-            E("; RTSQFLUSH — pp_flush(): дождаться разбора очереди ПП.");
-            E("RTSQFLUSH:");
-            E("RTSQF1: MOV\tSQHEAD, R0");
-            E("        CMP\tR0, SQTAIL");
-            E("        BNE\tRTSQF1");               // пока head != tail — ждём
-            E("        RTS\tPC");
-            E("");
             // ── RTPPBL — pp_blit(sx,sy,w,h,dx,dy): команда блита резиденту ──
             E("; RTPPBL — pp_blit(sx,sy,w,h,dx,dy): копия прямоугольника на ПП.");
             E("RTPPBL:");
@@ -1054,17 +1007,7 @@ namespace CompMacro11
             // PPLINE = дословный рабочий Брезенхем, на каждом шаге пишет x,y в
             // PPPX/PPPY и зовёт PPDOT. Регистры не конфликтуют: всё через память.
             E("PPRES:  JSR\tPC, PPCLR0");           // при старте: чистый план 0
-            E("PPRLP:");
-            // сначала обслуживаем ОЧЕРЕДЬ спрайтов (параллельный путь)
-            E("        MOV\t#<SQHEAD/2>, @#177010");
-            E("        MOV\t@#177014, R0");        // head
-            E("        MOV\t#<SQTAIL/2>, @#177010");
-            E("        MOV\t@#177014, R1");        // tail
-            E("        CMP\tR0, R1");
-            E("        BEQ\tPPRLQ");               // очередь пуста → к обычным командам
-            E("        JSR\tPC, PPSQDRAW");        // нарисовать спрайт из слота tail
-            E("        BR\tPPRLP");                // и снова (разгребаем очередь)
-            E("PPRLQ:  MOV\t#<PPCMD2/2>, @#177010");
+            E("PPRLP:  MOV\t#<PPCMD2/2>, @#177010");
             E("        MOV\t@#177014, R0");
             E("        BEQ\tPPRLP");
             E("        CMP\tR0, #177777");
@@ -1105,58 +1048,6 @@ namespace CompMacro11
             E("        RTS\tPC");
             E("");
             // PPDOT — точка из PPPX/PPPY/PPPC. Портит R0..R4, сохраняет R5.
-            // ── PPSQDRAW — нарисовать спрайт из очереди (слот SQTAIL), tail++ ──
-            //   Слот = 3 слова (x,y,ptr). Читает заголовок спрайта из ptr,
-            //   раскладывает в PPSX/PPSY/PPSW/PPSH/PPSPTR и зовёт PPSPR.
-            E("PPSQDRAW:");
-            E("        MOV\t#SQTAIL, @#177010");
-            E("        MOV\t@#177014, R2");        // R2 = tail (индекс слота 0..15)
-            E("        MOV\tR2, R3");
-            E("        ASL\tR3");
-            E("        ADD\tR2, R3");              // R3 = tail*3 (смещение в словах)
-            // адрес слота в SQBUF (в словах, для порта ПП)
-            E("        MOV\t#<SQBUF/2>, R4");
-            E("        ADD\tR3, R4");              // R4 = адрес x-слова слота
-            E("        MOV\tR4, @#177010");
-            E("        MOV\t@#177014, R0");        // x
-            E("        MOV\t#<PPSX/2>, @#177010");
-            E("        MOV\tR0, @#177014");
-            E("        INC\tR4");
-            E("        MOV\tR4, @#177010");
-            E("        MOV\t@#177014, R0");        // y
-            E("        MOV\t#<PPSY/2>, @#177010");
-            E("        MOV\tR0, @#177014");
-            E("        INC\tR4");
-            E("        MOV\tR4, @#177010");
-            E("        MOV\t@#177014, R4");        // R4 = ptr (байтовый адрес ОЗУ)
-            E("        ASR\tR4");                  // → словный адрес (как RTPPSP)
-            // прочитать заголовок [тип,words,height] по ptr
-            E("        INC\tR4");                  // пропустить тип (8цв данные)
-            E("        MOV\tR4, @#177010");
-            E("        MOV\t@#177014, R0");        // words
-            E("        ASL\tR0");
-            E("        ASL\tR0");
-            E("        ASL\tR0");                  // → пиксели
-            E("        MOV\t#<PPSW/2>, @#177010");
-            E("        MOV\tR0, @#177014");
-            E("        INC\tR4");
-            E("        MOV\tR4, @#177010");
-            E("        MOV\t@#177014, R0");        // height
-            E("        MOV\t#<PPSH/2>, @#177010");
-            E("        MOV\tR0, @#177014");
-            E("        INC\tR4");                  // R4 = адрес данных
-            E("        MOV\t#<PPSPTR/2>, @#177010");
-            E("        MOV\tR4, @#177014");
-            E("        JSR\tPC, PPSPR");           // рисуем
-            // tail = (tail+1) & 15
-            E("        MOV\t#SQTAIL, @#177010");
-            E("        MOV\t@#177014, R0");
-            E("        INC\tR0");
-            E("        BIC\t#177760, R0");         // & 15
-            E("        MOV\t#SQTAIL, @#177010");
-            E("        MOV\tR0, @#177014");
-            E("        RTS\tPC");
-            E("");
             E("PPDOT:  MOV\t#<PPPY/2>, @#177010");
             E("        MOV\t@#177014, R1");
             E("        MOV\t#<DSPST/2>, R2");
@@ -1556,9 +1447,6 @@ namespace CompMacro11
             E("PPADR2: .WORD\t0");                // сохранённый адрес ПП
             E("; --- переменные протокола резидентного ПП (общая память) ---");
             E("PPCMD2: .WORD\t0");                // команда резиденту: 0/1/177777
-            E("SQHEAD: .WORD\t0");                // очередь: указатель записи (ЦП)
-            E("SQTAIL: .WORD\t0");                // очередь: указатель чтения (ПП)
-            E("SQBUF:  .BLKW\t48.");              // очередь: 16 слотов × 3 слова
             E("PPPX:   .WORD\t0");                // x точки / x0 линии
             E("PPPY:   .WORD\t0");                // y точки / y0 линии
             E("PPPC:   .WORD\t0");                // цвет

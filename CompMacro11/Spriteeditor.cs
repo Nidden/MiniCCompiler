@@ -25,7 +25,7 @@ namespace CompMacro11
 
         public void Resize(int newWords, int newHeight)
         {
-            newHeight = Math.Max(1, Math.Min(264, newHeight));
+            newHeight = Math.Max(1, Math.Min(200, newHeight));
             newWords = Math.Max(1, newWords);
             int nw = newWords * 8, ow = PixelWidth;
             var np = new int[nw * newHeight];
@@ -62,17 +62,17 @@ namespace CompMacro11
             return s;
         }
 
-        // Пакует спрайт в список слов: [тип, words, height, данные].
-        //   Универсальный формат (ЦП/ПП). 8цв=2 слова/октет, 4цв=1 слово/октет.
-        public List<int> ToWords()
+        public string ExportC()
         {
             int pw = PixelWidth;
-            var w = new List<int>();
-            w.Add(PalIdx == 3 ? 1 : 0);     // тип
-            w.Add(Words);                    // ширина в словах
-            w.Add(Height);                   // высота
+            var wordList = new List<int>();
+
             if (PalIdx == 3)
             {
+                // Набор 8 цветов (ПП): 3 плана, 2 СЛОВА на октет.
+                //   слово 1 = план0 (для регистра ПП 177012)
+                //   слово 2 = планы 1&2 (младший байт=план1, старший=план2,
+                //             для регистра ПП 177014)
                 for (int y = 0; y < Height; y++)
                     for (int wx = 0; wx < Words; wx++)
                     {
@@ -84,12 +84,13 @@ namespace CompMacro11
                             if ((c & 2) != 0) plane1 |= (1 << b);
                             if ((c & 4) != 0) plane2 |= (1 << b);
                         }
-                        w.Add(plane0);
-                        w.Add(plane1 | (plane2 << 8));
+                        wordList.Add(plane0);                   // слово 1: план0
+                        wordList.Add(plane1 | (plane2 << 8));   // слово 2: планы1&2
                     }
             }
             else
             {
+                // Наборы 1,2,Ч/Б (ЦП): 4 цвета, 2 плана, 1 слово на октет.
                 for (int y = 0; y < Height; y++)
                     for (int wx = 0; wx < Words; wx++)
                     {
@@ -100,30 +101,10 @@ namespace CompMacro11
                             if ((c & 1) != 0) plane0 |= (1 << b);
                             if ((c & 2) != 0) plane1 |= (1 << b);
                         }
-                        w.Add(plane0 | (plane1 << 8));
+                        // Слово: младший байт = план0, старший байт = план1
+                        wordList.Add(plane0 | (plane1 << 8));
                     }
             }
-            return w;
-        }
-
-        // Пакует спрайт в байты (little-endian) для записи в файл на диск.
-        public byte[] ToBytes()
-        {
-            var w = ToWords();
-            var b = new byte[w.Count * 2];
-            for (int i = 0; i < w.Count; i++)
-            {
-                b[i * 2] = (byte)(w[i] & 0xFF);
-                b[i * 2 + 1] = (byte)((w[i] >> 8) & 0xFF);
-            }
-            return b;
-        }
-
-        public string ExportC()
-        {
-            int pw = PixelWidth;
-            var full = ToWords();
-            var wordList = full.GetRange(3, full.Count - 3);   // данные без заголовка
 
             var sb = new StringBuilder();
             sb.AppendLine($"// {Name}  {pw}x{Height}" + (PalIdx == 3 ? "  (8 цветов, ПП)" : ""));
@@ -338,7 +319,7 @@ namespace CompMacro11
                 ForeColor = C_TEXT,
                 FlatStyle = FlatStyle.Flat
             };
-            for (int i = 1; i <= 40; i++) _selW.Items.Add(i * 8 + " пикс");
+            for (int i = 1; i <= 8; i++) _selW.Items.Add(i * 8 + " пикс");
             _selW.SelectedIndex = 0;
             _selW.SelectedIndexChanged += (s, e) => { if (!_busy) ApplySize(); };
             bot.Controls.Add(_selW);
@@ -349,7 +330,7 @@ namespace CompMacro11
                 Location = new Point(122, 22),
                 Width = 52,
                 Minimum = 1,
-                Maximum = 264,
+                Maximum = 200,
                 Value = 16,
                 BackColor = C_BG3,
                 ForeColor = C_TEXT,
@@ -651,7 +632,6 @@ namespace CompMacro11
                     break;
                 case 5: // Экспорт
                     FBtn("→ В код", ref x, Color.FromArgb(0, 80, 50), () => ExportCode(), 100);
-                    FBtn("💾 На диск", ref x, Color.FromArgb(0, 60, 90), () => ExportToDisk(), 110);
                     break;
             }
         }
@@ -1300,8 +1280,8 @@ namespace CompMacro11
                 try
                 {
                     var orig = new Bitmap(dlg.FileName);
-                    int pw = Math.Min(((orig.Width + 7) / 8) * 8, 320);   // до 320 (40 слов)
-                    int ph = Math.Min(orig.Height, 264);                  // до 264 строк
+                    int pw = ((orig.Width + 7) / 8) * 8;
+                    int ph = Math.Min(orig.Height, 200);
                     int pi = _sprites.Count > 0 ? _sprites[_cur].PalIdx : 0;
                     // pi==3 → импорт в 8 цветов (PAL8), иначе в 4 цвета выбранного набора
 
@@ -1489,101 +1469,6 @@ namespace CompMacro11
             }
             var code = sb.ToString();
             if (_insertCode != null) _insertCode(code);
-        }
-
-        // ── Записать текущий спрайт как файл в образ диска (.dsk) ──
-        void ExportToDisk()
-        {
-            if (_sprites.Count == 0) return;
-            var spr = _sprites[_cur];
-            var bytes = spr.ToBytes();
-
-            // 1. выбрать образ
-            string dskPath = LastDiskPath();
-            if (dskPath == null || !File.Exists(dskPath))
-            {
-                using (var dlg = new OpenFileDialog { Filter = "Образы (*.dsk)|*.dsk|Все (*.*)|*.*", Title = "Выберите образ диска" })
-                {
-                    if (dlg.ShowDialog() != DialogResult.OK) return;
-                    dskPath = dlg.FileName;
-                }
-            }
-
-            // 2. имя файла RT-11 (по имени спрайта, до 6 символов + .SPR)
-            string baseName = new string(spr.Name.ToUpper().ToCharArray());
-            baseName = System.Text.RegularExpressions.Regex.Replace(baseName, "[^A-Z0-9]", "");
-            if (baseName.Length == 0) baseName = "SPRITE";
-            if (baseName.Length > 6) baseName = baseName.Substring(0, 6);
-            string rtName = baseName + ".SPR";
-
-            // спросить/подтвердить имя
-            string entered = AskName(
-                "Имя файла в образе (формат RT-11, до 6 символов + .SPR):", rtName);
-            if (string.IsNullOrWhiteSpace(entered)) return;
-            rtName = entered.ToUpper();
-
-            // 3. запись через DskImage
-            try
-            {
-                var img = new DskImage(dskPath);
-                if (!img.AddFile(rtName, bytes))
-                {
-                    MessageBox.Show($"Недостаточно места для {rtName} " +
-                        $"({(bytes.Length + 511) / 512} блоков). Свободно: {img.FreeBlocks()} блоков.",
-                        "Нет места", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-                SaveLastDiskPath(dskPath);
-                MessageBox.Show($"Спрайт {spr.Name} записан в {Path.GetFileName(dskPath)} " +
-                    $"как {rtName} ({bytes.Length} байт).\n\n" +
-                    $"В программе: {(spr.PalIdx == 3 ? "pp_spr" : "spr")}(x, y, buf); " +
-                    $"после fload(\"{rtName}\", buf, {(bytes.Length + 1) / 2 + 1});",
-                    "Готово", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Ошибка записи в образ:\n" + ex.Message,
-                    "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        // Простой модальный ввод строки (без VisualBasic-зависимости).
-        static string AskName(string prompt, string def)
-        {
-            using (var f = new Form
-            {
-                Text = "Запись на диск",
-                Width = 420,
-                Height = 160,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                StartPosition = FormStartPosition.CenterParent,
-                MaximizeBox = false,
-                MinimizeBox = false
-            })
-            {
-                var lbl = new Label { Left = 12, Top = 12, Width = 390, Height = 34, Text = prompt };
-                var txt = new TextBox { Left = 12, Top = 50, Width = 390, Text = def };
-                var ok = new Button { Text = "OK", Left = 226, Top = 82, Width = 80, DialogResult = DialogResult.OK };
-                var cancel = new Button { Text = "Отмена", Left = 314, Top = 82, Width = 80, DialogResult = DialogResult.Cancel };
-                f.Controls.AddRange(new Control[] { lbl, txt, ok, cancel });
-                f.AcceptButton = ok; f.CancelButton = cancel;
-                return f.ShowDialog() == DialogResult.OK ? txt.Text : null;
-            }
-        }
-
-        // Путь к последнему образу — общий с коммандером (last_disk.txt рядом с exe)
-        static string LastDiskFileMarker => Path.Combine(
-            Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location),
-            "last_disk.txt");
-        static string LastDiskPath()
-        {
-            try { if (File.Exists(LastDiskFileMarker)) return File.ReadAllText(LastDiskFileMarker).Trim(); }
-            catch { }
-            return null;
-        }
-        static void SaveLastDiskPath(string p)
-        {
-            try { File.WriteAllText(LastDiskFileMarker, p); } catch { }
         }
 
         // Сгенерировать полный код всех спрайтов (для компилятора)

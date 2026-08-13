@@ -176,7 +176,9 @@ namespace CompMacro11
             E("; RTSPR — sprite(x,y,w,h,ptr)");
             E(";   x,y в пикселях. w в пикселях кратно 8. h строк.");
             E(";   x кратен 8: быстрый путь — прямое копирование слов.");
-            E(";   x не кратен 8: попиксельный путь через RTPPNT (без окантовки).");
+            E(";   x не кратен 8: буферный путь — строка в SPBUF[9],");
+            E(";     сдвиг вправо на s=x&7 бит через цепочку ROR,");
+            E(";     затем вывод w/8+1 слов. Ширина спрайта <= 64px.");
             E("RTSPR:");
             E("        MOV	R5, -(SP)");
             E("        MOV	SP, R5");
@@ -215,75 +217,79 @@ namespace CompMacro11
             E("        DEC	R3");
             E("        BNE	RTSP1");
             E("        JMP	RTSPX");          // JMP вместо BR — надёжнее по дистанции
-            // ── ПОПИКСЕЛЬНЫЙ ПУТЬ: x не кратен 8 ─────────────────
-            // Восстанавливаем FP с SP+10. RTPPNT сохраняет R0-R3,R5.
+            // ── БУФЕРНЫЙ ПУТЬ: x не кратен 8 ─────────────────────
+            // R1=s, R0=x, R2=words, R3=h, R4=ptr, R5=начало строки.
+            // Строка копируется в SPBUF, сдвигается на s бит через ROLB,
+            // выводится w+1 слов. Крайние слова дают чёрную окантовку —
+            // известное поведение (некратный x), но спрайт рисуется.
             E("RTSPS:");
-            E("        MOV\tSP, R0");
-            E("        ADD\t#10., R0");
-            E("        MOV\t(R0), R5");            // R5 = FP
-            E("        MOV\t12.(R5), R4");          // rowptr = ptr
-            E("        CLR\tR3");                   // row
-            E("RTSPPY: CMP\tR3, 10.(R5)");
-            E("        BGE\tRTSPX");
-            E("        CLR\tR2");                   // col
-            E("RTSPPX: CMP\tR2, 8.(R5)");
-            E("        BGE\tRTSPNY");
-            E("        MOV\tR4, R0");
-            E("        MOV\tR2, R1");
-            E("        ASR\tR1");
-            E("        ASR\tR1");
-            E("        ASR\tR1");
-            E("        ASL\tR1");
-            E("        ADD\tR1, R0");
-            E("        MOV\t(R0), R0");             // R0 = слово
-            E("        MOV\tR2, R1");
-            E("        BIC\t#177770, R1");          // R1 = bit
-            // plan0: (word >> bit) & 1
-            E("        TST\tR1");
-            E("        BEQ\tRTSPU0");
-            E("RTSPUSH: ASR\tR0");
-            E("        DEC\tR1");
-            E("        BNE\tRTSPUSH");
-            E("RTSPU0: BIC\t#177776, R0");         // R0 = plan0
-            E("        MOV\tR0, -(SP)");            // push plan0
-            E("        MOV\tR4, R0");
-            E("        MOV\tR2, R1");
-            E("        ASR\tR1");
-            E("        ASR\tR1");
-            E("        ASR\tR1");
-            E("        ASL\tR1");
-            E("        ADD\tR1, R0");
-            E("        MOV\t(R0), R0");             // word снова
-            E("        SWAB\tR0");
-            E("        MOV\tR2, R1");
-            E("        BIC\t#177770, R1");          // bit
-            E("        TST\tR1");
-            E("        BEQ\tRTSPU1");
-            E("RTSPUSH2: ASR\tR0");
-            E("        DEC\tR1");
-            E("        BNE\tRTSPUSH2");
-            E("RTSPU1: BIC\t#177776, R0");         // plan1 bit
-            E("        ASL\tR0");
-            E("        ADD\t(SP)+, R0");            // R0 = color
-            E("        MOV\tR0, -(SP)");            // color
-            E("        MOV\t6.(R5), R0");
-            E("        ADD\tR3, R0");              // y+row
-            E("        MOV\tR0, -(SP)");
-            E("        MOV\t4.(R5), R0");
-            E("        ADD\tR2, R0");              // x+col
-            E("        MOV\tR0, -(SP)");
-            E("        JSR\tPC, RTPPNT");
-            E("        ADD\t#6., SP");
-            E("        INC\tR2");
-            E("        BR\tRTSPPX");
-            E("RTSPNY: MOV\t8.(R5), R0");           // stride = (w>>3)*2
-            E("        ASR\tR0");
-            E("        ASR\tR0");
-            E("        ASR\tR0");
-            E("        ASL\tR0");
-            E("        ADD\tR0, R4");              // rowptr += stride
-            E("        INC\tR3");
-            E("        BR\tRTSPPY");
+            E("        ASR	R0"); E("        ASR	R0"); E("        ASR	R0");
+            E("        ADD	R0, R5");
+            E("        MOV	#80., R0");
+            E("        SUB	R2, R0");
+            E("        DEC	R0");
+            E("        MOV	R1, -(SP)");     // push s
+            E("        MOV	R0, -(SP)");     // push step
+            E("        MOV	R3, -(SP)");     // push h; SP+0=h SP+2=step SP+4=s
+            E("RTSPL1:");
+            E("        MOV	R2, R1");
+            E("        MOV	#SPBUF, R0");
+            E("RTSPC1: MOV	(R4)+, (R0)+");
+            E("        DEC	R1");
+            E("        BNE	RTSPC1");
+            E("        CLR	(R0)");
+            E("        MOV	4.(SP), R1");    // R1 = s
+            E("        BEQ	RTSPE1");
+            E("RTSPS1: CLC");
+            E("        ROLB	SPBUF+1.");
+            E("        ROLB	SPBUF+3.");
+            E("        ROLB	SPBUF+5.");
+            E("        ROLB	SPBUF+7.");
+            E("        ROLB	SPBUF+9.");
+            E("        ROLB	SPBUF+11.");
+            E("        ROLB	SPBUF+13.");
+            E("        ROLB	SPBUF+15.");
+            E("        ROLB	SPBUF+17.");
+            E("        ROLB	SPBUF+19.");
+            E("        ROLB	SPBUF+21.");
+            E("        ROLB	SPBUF+23.");
+            E("        ROLB	SPBUF+25.");
+            E("        ROLB	SPBUF+27.");
+            E("        ROLB	SPBUF+29.");
+            E("        CLC");
+            E("        ROLB	SPBUF+0.");
+            E("        ROLB	SPBUF+2.");
+            E("        ROLB	SPBUF+4.");
+            E("        ROLB	SPBUF+6.");
+            E("        ROLB	SPBUF+8.");
+            E("        ROLB	SPBUF+10.");
+            E("        ROLB	SPBUF+12.");
+            E("        ROLB	SPBUF+14.");
+            E("        ROLB	SPBUF+16.");
+            E("        ROLB	SPBUF+18.");
+            E("        ROLB	SPBUF+20.");
+            E("        ROLB	SPBUF+22.");
+            E("        ROLB	SPBUF+24.");
+            E("        ROLB	SPBUF+26.");
+            E("        ROLB	SPBUF+28.");
+            E("        DEC	R1");
+            E("        BEQ	RTSPE1");
+            E("        JMP	RTSPS1");
+            E("RTSPE1: MOV	R2, R1");
+            E("        INC	R1");            // R1 = w+1
+            E("        MOV	#SPBUF, R0");
+            E("RTSPO1: MOV	R5, @#176640");
+            E("        MOV	(R0)+, @#176642");
+            E("        INC	R5");
+            E("        DEC	R1");
+            E("        BNE	RTSPO1");
+            E("        ADD	2.(SP), R5");    // step
+            E("        DEC	0.(SP)");        // h--
+            E("        BEQ	RTSPL3");
+            E("        JMP	RTSPL1");
+            E("RTSPL3: TST	(SP)+");
+            E("        TST	(SP)+");
+            E("        TST	(SP)+");
             E("RTSPX:");
             E("        MOV	(SP)+, R4");
             E("        MOV	(SP)+, R3");
