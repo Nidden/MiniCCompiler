@@ -16,7 +16,9 @@ namespace CompMacro11
         // Имена для подсветки синтаксиса
         public static readonly HashSet<string> Names = new HashSet<string>
         {
-            "line", "iabs", "fillCircle", "fillhline", "frame"
+            "line", "iabs", "fillCircle", "fillhline", "frame",
+            // ── Функции для файлового менеджера (Norton Commander) ──
+            "fdelete", "frename", "mkdir", "getcwd", "chdir", "file_info"
         };
 
         private static readonly Dictionary<string, string> _functions =

@@ -1386,6 +1386,13 @@ namespace CompMacro11
         static Form1()
         {
             foreach (var n in StdLib.Names) KwBuiltin.Add(n);
+            // ── Функции для файлового менеджера (Norton Commander) ──
+            KwBuiltin.Add("fdelete");
+            KwBuiltin.Add("frename");
+            KwBuiltin.Add("mkdir");
+            KwBuiltin.Add("getcwd");
+            KwBuiltin.Add("chdir");
+            KwBuiltin.Add("file_info");
         }
         private static readonly HashSet<string> KwBool = new HashSet<string> { "true", "false" };
 

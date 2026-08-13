@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
@@ -6,8 +7,8 @@ using System.Windows.Forms;
 namespace CompMacro11
 {
     // ── Двухпанельный файловый менеджер (Norton Commander стиль) ───────
-    //   Верхняя панель — Windows (диски, каталоги, файлы).
-    //   Нижняя панель — образ .dsk (файлы RT-11 через DskImage).
+    //   Левая панель — образ .dsk (файлы RT-11 через DskImage).
+    //   Правая панель — Windows (диски, каталоги, файлы).
     //   F5 — копировать из активной панели в противоположную.
     //   Tab — переключить активную панель. F8 — удалить. F3 — просмотр.
     public class DskDialog : Form
@@ -17,7 +18,29 @@ namespace CompMacro11
         private WinPanel _top;      // Windows
         private DskPanel _bot;      // образ .dsk
         private bool _topActive = true;
-        private Label _fkeys;
+        private Panel _fkeys;
+
+        // Кнопка-дублёр функциональной клавиши в нижней панели
+        private void AddFKey(string text, int idx, Action act)
+        {
+            var b = new Button
+            {
+                Text = text,
+                Width = 130,
+                Height = 26,
+                Left = 6 + idx * 136,
+                Top = 2,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(0, 128, 128),
+                ForeColor = Color.White,
+                Font = new Font("Consolas", 9.5f, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                TabStop = false
+            };
+            b.FlatAppearance.BorderColor = Color.FromArgb(0, 80, 80);
+            b.Click += (s, e) => act();
+            _fkeys.Controls.Add(b);
+        }
 
         static string LastDiskFile => Path.Combine(
             Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location),
@@ -31,28 +54,30 @@ namespace CompMacro11
             BackColor = NC_BG;
             KeyPreview = true;
 
-            _top = new WinPanel { Dock = DockStyle.Left, Width = 512 };   // левая — Windows
+            _bot = new DskPanel { Dock = DockStyle.Left, Width = 512 };   // левая — образ .dsk
             var split = new Panel { Dock = DockStyle.Left, Width = 4, BackColor = Color.Black };
-            _bot = new DskPanel { Dock = DockStyle.Fill };                // правая — образ .dsk
+            _top = new WinPanel { Dock = DockStyle.Fill };                // правая — Windows
 
-            _fkeys = new Label
+            _fkeys = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 26,
-                BackColor = Color.FromArgb(0, 128, 128),
-                ForeColor = Color.White,
-                Font = new Font("Consolas", 10f, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Text = "Tab Панель   F3 Просмотр   F5 Копировать   F8 Удалить   F7 Открыть образ   ESC Выход"
+                Height = 30,
+                BackColor = Color.FromArgb(0, 0, 90)
             };
+            AddFKey("F3 Просмотр", 0, () => DoView());
+            AddFKey("F5 Копировать", 1, () => DoCopy());
+            AddFKey("F7 Образ", 2, () => _bot.OpenDialog(RememberPath));
+            AddFKey("F8 Удалить", 3, () => DoDelete());
+            AddFKey("ESC Выход", 4, () => Close());
 
-            Controls.Add(_bot);
-            Controls.Add(split);
-            Controls.Add(_top);
+            Controls.Add(_top);     // Fill (правая) — первой
+            Controls.Add(split);    // разделитель
+            Controls.Add(_bot);     // Left (левая, образ)
             Controls.Add(_fkeys);
 
             _top.OnActivate += () => SetActive(true);
             _bot.OnActivate += () => SetActive(false);
+            _bot.OnView += () => { SetActive(false); DoView(); };
 
             Load += (s, e) =>
             {
@@ -159,6 +184,8 @@ namespace CompMacro11
         public event Action OnActivate;
         public string CurrentDir { get; private set; }
         private ListView _lv;
+        private int _sortCol = 0;
+        private bool _sortAsc = true;
         private Label _hdr;
 
         static readonly Color BG = Color.FromArgb(0, 0, 128);
@@ -189,14 +216,21 @@ namespace CompMacro11
                 BackColor = BG,
                 ForeColor = FG,
                 Font = FT,
-                HeaderStyle = ColumnHeaderStyle.Nonclickable,
+                HeaderStyle = ColumnHeaderStyle.Clickable,
                 MultiSelect = false
             };
             _lv.Columns.Add("Имя", 300);
             _lv.Columns.Add("Размер", 95);
             _lv.Columns.Add("Тип", 80);
+            _lv.ColumnClick += (s, e) =>
+            {
+                if (_sortCol == e.Column) _sortAsc = !_sortAsc;
+                else { _sortCol = e.Column; _sortAsc = true; }
+                Refresh_();
+            };
             _lv.ItemActivate += (s, e) => Enter_();
             _lv.Enter += (s, e) => OnActivate?.Invoke();
+            _lv.MouseDown += (s, e) => OnActivate?.Invoke();
             _lv.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { Enter_(); e.Handled = true; } };
             Controls.Add(_lv);
             Controls.Add(_hdr);
@@ -231,14 +265,30 @@ namespace CompMacro11
             _lv.Items.Add(up);
             try
             {
-                foreach (var dir in Directory.GetDirectories(CurrentDir))
+                // сортировка: папки и файлы отдельно, папки всегда сверху
+                var dirs = new List<string>(Directory.GetDirectories(CurrentDir));
+                var files = new List<string>(Directory.GetFiles(CurrentDir));
+                Comparison<string> byName = (a, b) =>
+                    string.Compare(Path.GetFileName(a), Path.GetFileName(b), StringComparison.OrdinalIgnoreCase);
+                if (_sortCol == 0)          // Имя
+                { dirs.Sort(byName); files.Sort(byName); }
+                else if (_sortCol == 1)     // Размер (папки по имени, файлы по длине)
+                { dirs.Sort(byName); files.Sort((a, b) => new FileInfo(a).Length.CompareTo(new FileInfo(b).Length)); }
+                else                         // Тип (по расширению)
+                {
+                    dirs.Sort(byName); files.Sort((a, b) =>
+                    string.Compare(Path.GetExtension(a), Path.GetExtension(b), StringComparison.OrdinalIgnoreCase));
+                }
+                if (!_sortAsc) { dirs.Reverse(); files.Reverse(); }
+
+                foreach (var dir in dirs)
                 {
                     var it = new ListViewItem(Path.GetFileName(dir)) { ForeColor = DIR };
                     it.SubItems.Add(""); it.SubItems.Add("папка");
                     it.Tag = new Node { Path = dir, IsDir = true };
                     _lv.Items.Add(it);
                 }
-                foreach (var f in Directory.GetFiles(CurrentDir))
+                foreach (var f in files)
                 {
                     var fi = new FileInfo(f);
                     var it = new ListViewItem(Path.GetFileName(f));
@@ -284,6 +334,8 @@ namespace CompMacro11
         public event Action OnActivate;
         public bool HasImage => _img != null;
         private DskImage _img;
+        private int _sortCol = 0;
+        private bool _sortAsc = true;
         private ListView _lv;
         private Label _hdr;
 
@@ -314,16 +366,26 @@ namespace CompMacro11
                 BackColor = BG,
                 ForeColor = FG,
                 Font = FT,
-                HeaderStyle = ColumnHeaderStyle.Nonclickable,
+                HeaderStyle = ColumnHeaderStyle.Clickable,
                 MultiSelect = false
             };
             _lv.Columns.Add("Имя", 240);
             _lv.Columns.Add("Блоков", 90);
             _lv.Columns.Add("Байт", 100);
+            _lv.ColumnClick += (s, e) =>
+            {
+                if (_sortCol == e.Column) _sortAsc = !_sortAsc;
+                else { _sortCol = e.Column; _sortAsc = true; }
+                Refresh_();
+            };
             _lv.Enter += (s, e) => OnActivate?.Invoke();
+            _lv.MouseDown += (s, e) => OnActivate?.Invoke();
+            _lv.DoubleClick += (s, e) => OnView?.Invoke();
             Controls.Add(_lv);
             Controls.Add(_hdr);
         }
+
+        public event Action OnView;   // двойной клик по файлу образа → просмотр
 
         public void SetActive(bool on)
         {
@@ -350,9 +412,18 @@ namespace CompMacro11
         {
             _lv.Items.Clear();
             if (_img == null) { _hdr.Text = " Образ .dsk — F7 открыть"; return; }
+            var files = new List<DskImage.Entry>();
             foreach (var e in _img.ReadDir())
+                if (!e.Empty) files.Add(e);
+            // сортировка по колонке
+            if (_sortCol == 0)          // Имя
+                files.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            else                         // Блоков / Байт (обе по размеру)
+                files.Sort((a, b) => a.Blocks.CompareTo(b.Blocks));
+            if (!_sortAsc) files.Reverse();
+
+            foreach (var e in files)
             {
-                if (e.Empty) continue;
                 var it = new ListViewItem(e.Name);
                 it.SubItems.Add(e.Blocks.ToString());
                 it.SubItems.Add((e.Blocks * 512).ToString());
