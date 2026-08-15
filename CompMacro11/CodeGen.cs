@@ -40,7 +40,8 @@ namespace CompMacro11
         static readonly System.Collections.Generic.HashSet<string> CpuForbidden =
             new System.Collections.Generic.HashSet<string> {
                 "ppu_init","pp_init","pp_point","pp_line","pp_sprite","pp_stop",
-                "pp_spr","pp_blit","vpoke","pp_peek","vload","pp_vspr"
+                "pp_spr","pp_blit","vpoke","pp_peek","vload","pp_vspr","pp_spr_q","pp_flush","pp_qhead","pp_qtail",
+                "pp_upload","pp_sprm","pp_upaddr"
             };
 
         private StringBuilder _out;
@@ -111,7 +112,11 @@ namespace CompMacro11
             "vsync", "sin256", "cos256", "abs", "min", "max", "clamp",
             "ppu_init", "pp_init", "pp_point", "pp_line", "pp_sprite", "pp_stop",
             "spr", "pp_spr", "pp_blit", "vpoke", "pp_peek", "vload", "pp_vspr",
-            "fload", "fsave", "print_buf", "str_to_buf"
+            "pp_spr_q", "pp_flush", "pp_qhead", "pp_qtail",
+            "pp_upload", "pp_sprm", "pp_upaddr",
+            "fload", "fsave", "print_buf", "str_to_buf",
+            // ── Функции для файлового менеджера (Norton Commander) ──
+            "fdelete", "frename", "mkdir", "getcwd", "chdir", "file_info"
         };
 
         public CodeGen() { _out = new StringBuilder(); _funcs = new Dictionary<string, FuncInfo>(); }
@@ -2716,14 +2721,6 @@ namespace CompMacro11
                     EI("ADD", "#2., SP");
                     break;
 
-                    if (c.Args.Count != 1)
-                        throw new Exception($"Строка {c.Line}: print_int(n) требует 1 аргумент");
-                    GenExpr(c.Args[0]);
-                    EI("MOV", "R0, -(SP)");
-                    EI("JSR", "PC, RTPNUM");
-                    EI("ADD", "#2., SP");
-                    break;
-
                 case "box":
                     if (c.Args.Count != 5)
                         throw new Exception($"Строка {c.Line}: box(x,y,w,h,color) требует 5 аргументов");
@@ -2896,6 +2893,76 @@ namespace CompMacro11
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
                     EI("JSR", "PC, RTPPSH");
                     EI("ADD", "#6., SP");
+                    break;
+
+                case "pp_spr_q":
+                    // Спрайт через ОЧЕРЕДЬ: кладёт команду и НЕ ждёт (параллельно ПП).
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: pp_spr_q(x,y,ptr) требует 3 аргумента");
+                    EC($"pp_spr_q({ArgStr(c)}): спрайт через очередь (не ждёт ПП)");
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // ptr
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // y
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // x
+                    EI("JSR", "PC, RTSQPUT");
+                    EI("ADD", "#6., SP");
+                    break;
+
+
+
+
+
+
+
+                case "pp_upload":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: pp_upload(ptr) требует 1 аргумент");
+                    EC("pp_upload(ptr): загрузить спрайт в ОЗУ ПП, вернуть его номер");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTPPUP");
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "pp_upaddr":
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: pp_upaddr(id) требует 1 аргумент");
+                    EC("pp_upaddr(id): адрес спрайта в ОЗУ ПП — для диагностики");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTPUAT");
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "pp_sprm":
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: pp_sprm(x,y,id) требует 3 аргумента");
+                    EC("pp_sprm(x,y,id): вывести спрайт из ОЗУ ПП");
+                    for (int i = c.Args.Count - 1; i >= 0; i--)
+                    {
+                        GenExpr(c.Args[i]);
+                        EI("MOV", "R0, -(SP)");
+                    }
+                    EI("JSR", "PC, RTPPSM");
+                    EI("ADD", "#6., SP");
+                    break;
+
+
+                case "pp_flush":
+                    // Дождаться опустошения очереди (конец кадра).
+                    if (c.Args.Count != 0)
+                        throw new Exception($"Строка {c.Line}: pp_flush() без аргументов");
+                    EC("pp_flush(): ждать опустошения очереди ПП");
+                    EI("JSR", "PC, RTSQFLUSH");
+                    break;
+
+                case "pp_qhead":
+                    EC("pp_qhead(): значение SQHEAD (диагностика)");
+                    EI("MOV", "SQHEAD, R0");
+                    break;
+
+                case "pp_qtail":
+                    EC("pp_qtail(): значение SQTAIL (диагностика)");
+                    EI("MOV", "SQTAIL, R0");
                     break;
 
                 case "vpoke":
@@ -3197,6 +3264,73 @@ namespace CompMacro11
                         throw new Exception($"Строка {c.Line}: getkey() не принимает аргументов");
                     EC("getkey(): прочитать клавишу без ожидания → R0 (0=нет)");
                     EI("JSR", "PC, RTGKEY");
+                    break;
+
+                // ── Функции для Norton Commander (файловый менеджер) ──
+                case "fdelete":
+                    // fdelete(name) — удалить файл
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: fdelete(name) требует 1 аргумент");
+                    EC($"fdelete({ArgStr(c)}): удаление файла");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTFDEL");
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "frename":
+                    // frename(old, new) — переименовать файл
+                    if (c.Args.Count != 2)
+                        throw new Exception($"Строка {c.Line}: frename(old,new) требует 2 аргумента");
+                    EC($"frename({ArgStr(c)}): переименование");
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // new
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // old
+                    EI("JSR", "PC, RTFREN");
+                    EI("ADD", "#4., SP");
+                    break;
+
+                case "mkdir":
+                    // mkdir(name) — создать каталог
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: mkdir(name) требует 1 аргумент");
+                    EC($"mkdir({ArgStr(c)}): создание каталога");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTMKDIR");
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "getcwd":
+                    // getcwd(buf) — получить текущий каталог
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: getcwd(buf) требует 1 аргумент");
+                    EC($"getcwd({ArgStr(c)}): текущий каталог");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTGETCWD");
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "chdir":
+                    // chdir(path) — сменить каталог
+                    if (c.Args.Count != 1)
+                        throw new Exception($"Строка {c.Line}: chdir(path) требует 1 аргумент");
+                    EC($"chdir({ArgStr(c)}): смена каталога");
+                    GenExpr(c.Args[0]);
+                    EI("MOV", "R0, -(SP)");
+                    EI("JSR", "PC, RTCHDIR");
+                    EI("ADD", "#2., SP");
+                    break;
+
+                case "file_info":
+                    // file_info(name, buf) — получить информацию о файле
+                    if (c.Args.Count != 2)
+                        throw new Exception($"Строка {c.Line}: file_info(name,buf) требует 2 аргумента");
+                    EC($"file_info({ArgStr(c)}): информация о файле");
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // buf
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // name
+                    EI("JSR", "PC, RTFINFO");
+                    EI("ADD", "#4., SP");
                     break;
 
                 default:

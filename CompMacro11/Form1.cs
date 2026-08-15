@@ -85,6 +85,30 @@ namespace CompMacro11
 
         private const int WM_SETREDRAW = 0x000B;
 
+        // ── Сохранение/восстановление позиции прокрутки ──────────
+        // Установка SelectionStart прокручивает RichTextBox к каретке.
+        // WM_SETREDRAW гасит только перерисовку, но не саму прокрутку,
+        // поэтому после подсветки вид уезжал к курсору. Запоминаем
+        // позицию до покраски и возвращаем перед включением отрисовки.
+        private const int EM_GETSCROLLPOS = 0x04DD;
+        private const int EM_SETSCROLLPOS = 0x04DE;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam,
+                                                 ref System.Drawing.Point lParam);
+
+        private static System.Drawing.Point GetRtbScroll(RichTextBox rtb)
+        {
+            var p = System.Drawing.Point.Empty;
+            SendMessage(rtb.Handle, EM_GETSCROLLPOS, IntPtr.Zero, ref p);
+            return p;
+        }
+
+        private static void SetRtbScroll(RichTextBox rtb, System.Drawing.Point p)
+        {
+            SendMessage(rtb.Handle, EM_SETSCROLLPOS, IntPtr.Zero, ref p);
+        }
+
         private static void BeginRtbUpdate(RichTextBox rtb) =>
             SendMessage(rtb.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
         private static void EndRtbUpdate(RichTextBox rtb)
@@ -127,6 +151,9 @@ namespace CompMacro11
         private string _emulatorPath = "";   // путь к UKNCBTL.exe
         private McProject _project = null;   // текущий проект
         private string _projectSpritesPath = null;
+        // Пока true, изменения _src.Text не помечают проект изменённым
+        // (используется при загрузке кода из проекта).
+        private bool _suppressDirty = false;
         private int _lastSpriteBytes = 0;   // размер подключённых спрайтов (байт УКНЦ)
         private Button _btnSave = null;
         private CheckBox _chkOptimize = null;   // tree-shaking рантайма
@@ -359,7 +386,11 @@ namespace CompMacro11
             // Дебаунс подсветки — 120мс после последнего нажатия (окно мало → быстро)
             _hlTimer = new System.Windows.Forms.Timer { Interval = 120 };
             _hlTimer.Tick += (_, __) => { _hlTimer.Stop(); Highlight(); };
-            _src.TextChanged += (_, __) => { if (!_highlighting) { _hlTimer.Stop(); _hlTimer.Start(); } };
+            _src.TextChanged += (_, __) =>
+            {
+                if (!_highlighting) { _hlTimer.Stop(); _hlTimer.Start(); }
+                if (!_suppressDirty) MarkProjectDirty();
+            };
             // Перекрашивать при прокрутке — новые видимые строки (дебаунс 60мс)
             _scrollTimer = new System.Windows.Forms.Timer { Interval = 60 };
             _scrollTimer.Tick += (_, __) => { _scrollTimer.Stop(); Highlight(); };
@@ -1069,9 +1100,8 @@ namespace CompMacro11
         {
             if (_project != null)
             {
-                string spritesDir = System.IO.Path.Combine(_project.ProjectDir, "sprites");
-                System.IO.Directory.CreateDirectory(spritesDir);
-                string path = System.IO.Path.Combine(spritesDir, "sprites.spr");
+                string path = _project.SpritesFile;
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
                 if (_spriteEditor != null && !_spriteEditor.IsDisposed)
                     _spriteEditor.SpritesPath = path;
                 _projectSpritesPath = path;
@@ -1386,6 +1416,13 @@ namespace CompMacro11
         static Form1()
         {
             foreach (var n in StdLib.Names) KwBuiltin.Add(n);
+            // ── Функции для файлового менеджера (Norton Commander) ──
+            KwBuiltin.Add("fdelete");
+            KwBuiltin.Add("frename");
+            KwBuiltin.Add("mkdir");
+            KwBuiltin.Add("getcwd");
+            KwBuiltin.Add("chdir");
+            KwBuiltin.Add("file_info");
         }
         private static readonly HashSet<string> KwBool = new HashSet<string> { "true", "false" };
 
@@ -1409,6 +1446,7 @@ namespace CompMacro11
             _highlighting = true;
 
             int sel = _src.SelectionStart;
+            var scrollPos = GetRtbScroll(_src);       // запомнить прокрутку
 
             // ── Виртуализация: подсвечиваем только ВИДИМЫЕ строки + запас ──
             // Нагрузка перестаёт зависеть от размера файла.
@@ -1497,6 +1535,7 @@ namespace CompMacro11
             _src.SelectionLength = 0;
             _src.SelectionColor = C_TEXT;
 
+            SetRtbScroll(_src, scrollPos);            // вернуть прокрутку на место
             EndRtbUpdate(_src);
             _highlighting = false;
         }
@@ -1612,6 +1651,11 @@ namespace CompMacro11
             sw.Toggled += g =>
             {
                 _gameMode = g;
+                if (_project != null && _project.Settings.GameMode != g)
+                {
+                    _project.Settings.GameMode = g;
+                    MarkProjectDirty();
+                }
                 SetStatus(g
                     ? "✓  Режим Game: 320x264, спрайты, ЦП+ПП (8 цветов)"
                     : "✓  Режим ЦП: векторная графика, 4 цвета", false);
@@ -1802,8 +1846,11 @@ int main(void) {
                 _project = McProject.CreateNew(dlg.ProjectName, dlg.ProjectFolder);
                 RecentProjects.Add(_project.ProjectPath);
                 AppEnvironment.LastProjectPath = _project.ProjectPath;
-                _src.Text = _project.ReadMainCode();
+                LoadCodeIntoEditor(_project.ReadMainCode());
                 UpdateSpritesPath();
+                _project.Settings.GameMode = _gameMode;   // текущий режим — стартовый для проекта
+                _project.Save();
+                if (_btnSave != null) _btnSave.Visible = true;
                 UpdateTitle();
                 SetStatus("✓ Проект создан: " + _project.Name, false);
             }
@@ -1831,8 +1878,10 @@ int main(void) {
                 _project = McProject.Load(path);
                 RecentProjects.Add(path);
                 AppEnvironment.LastProjectPath = path;
-                _src.Text = _project.ReadMainCode();
+                LoadCodeIntoEditor(_project.ReadMainCode());
                 UpdateSpritesPath();
+                ApplyProjectSettings();
+                RestoreCaret();
                 if (_btnSave != null) _btnSave.Visible = true;
                 UpdateTitle();
                 SetStatus("✓ Открыт: " + _project.Name, false);
@@ -1844,14 +1893,69 @@ int main(void) {
             }
         }
 
+        // Пометить проект изменённым и показать это в заголовке
+        private void MarkProjectDirty()
+        {
+            if (_project == null || _project.IsModified) return;
+            _project.IsModified = true;
+            UpdateTitle();
+        }
+
+        // Загрузить код в редактор, не помечая проект изменённым
+        private void LoadCodeIntoEditor(string code)
+        {
+            _suppressDirty = true;
+            try { _src.Text = code; }
+            finally { _suppressDirty = false; }
+        }
+
+        // Применить к форме настройки открытого проекта
+        private void ApplyProjectSettings()
+        {
+            if (_project == null) return;
+            _gameMode = _project.Settings.GameMode;
+            SetStatus(_gameMode
+                ? "Режим Game: 320x264, спрайты, ЦП+ПП (8 цветов)"
+                : "Режим ЦП: векторная графика, 4 цвета", false);
+        }
+
+        // Сбросить спрайты редактора в файл проекта и переписать их список в .pkc
+        private void SaveProjectSprites()
+        {
+            if (_project == null) return;
+            try
+            {
+                if (_spriteEditor != null && !_spriteEditor.IsDisposed)
+                    _spriteEditor.SaveNow();
+
+                _project.Sprites.Clear();
+                var list = (_spriteEditor != null && !_spriteEditor.IsDisposed)
+                    ? _spriteEditor.GetSprites()
+                    : LoadSpritesFromFile();
+                if (list != null)
+                    foreach (var sp in list)
+                        _project.Sprites.Add(sp.Name);
+            }
+            catch { /* спрайты не должны ронять сохранение проекта */ }
+        }
+
         private void ProjectSave()
         {
             if (_project == null) return;
             _project.WriteMainCode(_src.Text);
             AppEnvironment.LastCode = _src.Text;
+
+            SaveProjectSprites();
+
+            // запомнить положение курсора
+            int caret = _src.SelectionStart;
+            int line = _src.GetLineFromCharIndex(caret);
+            _project.CursorLine = line + 1;
+            _project.CursorCol = caret - _src.GetFirstCharIndexFromLine(line) + 1;
+
             _project.Save();
             UpdateTitle();
-            SetStatus("✓ Сохранено", false);
+            SetStatus("✓ Сохранено: " + _project.Name, false);
         }
 
         private void ProjectSaveAs()
@@ -1903,9 +2007,29 @@ int main(void) {
 
         private void UpdateTitle()
         {
-            Text = _project != null
-                ? "Mini-C → Macro-11  |  " + _project.Name
-                : "Mini-C → Macro-11";
+            if (_project == null) { Text = "Mini-C → Macro-11"; return; }
+            Text = "Mini-C → Macro-11  |  " + _project.Name
+                 + (_project.IsModified ? " ●" : "")
+                 + (_project.Settings.GameMode ? "  [Game]" : "  [ЦП]");
+        }
+
+        // Вернуть курсор туда, где он был при сохранении проекта
+        private void RestoreCaret()
+        {
+            if (_project == null) return;
+            try
+            {
+                int line = Math.Max(0, _project.CursorLine - 1);
+                if (line >= _src.Lines.Length) line = Math.Max(0, _src.Lines.Length - 1);
+                int start = _src.GetFirstCharIndexFromLine(line);
+                if (start < 0) start = 0;
+                int col = Math.Max(0, _project.CursorCol - 1);
+                if (line < _src.Lines.Length) col = Math.Min(col, _src.Lines[line].Length);
+                _src.SelectionStart = Math.Min(start + col, _src.TextLength);
+                _src.SelectionLength = 0;
+                _src.ScrollToCaret();
+            }
+            catch { }
         }
     }
 

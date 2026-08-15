@@ -1,0 +1,2094 @@
+	.TITLE	LODEMZ
+	.MCALL	.EXIT,.TTYIN,.TTINR
+	.ASECT
+
+	.=001000
+START::
+	BIS     #010000, @#44	; Disable Ctrl-C
+	MOV	SP, STACK	;                              SP
+	BR	Z01064		;                          
+
+GAME:
+;                                  (         5 =>          027000, 9 => 007000, 1 => 047000)
+	MOV	#10., R0	;
+	SUB	SPEED, R0       ; 10. - SPEED -> R0
+	ASH	#11., R0
+	ADD	#3000, R0
+	MOV	R0, @#<Z16212 + 2>
+;                 
+	JMP	Z14600
+
+FINISH:
+	MOV	STACK, SP	;                     
+	MOV	#EXITSC, R1	;                                    
+	CALL	PRINT
+	.EXIT
+
+Z01060:
+;                                  
+Z01064:
+	CLR	Z11306
+	CLR	Z11304
+	MOV	#1, MENUP	;                     
+
+MENUDR:	;                  
+	MOV	#MENUSC, R1	;                     
+	CALL	PRINT
+	MOV	#VERSTR, R1	;               /        VERSIO.MAC
+	CALL	PRINT
+	CALL	PAUSE		;                                       
+	CALL	HLINES		;                                
+	MOV	#MENUS2, R1	;                  
+	MOV	#44, R2		;                    
+	MOV	#5, R5		;                        
+10$:	;                            
+	MOV	#33, R0		; Esc
+	CALL	TTYOUT
+	MOV	#131, R0	;                 
+	CALL	TTYOUT
+	MOV	R2, R0		;       
+	CALL	TTYOUT
+	MOV	#51, R0		;        
+	CALL	TTYOUT
+	CALL	PRINT
+	INC	R2
+	SOB	R5, 10$		;          
+
+	MOV	#MENUL2, R1	;                 
+	CALL	PRINT
+	MOV	LEVEL, R4
+	CALL	Z20074		;                      --                 
+
+	MOV	#MENUL3, R1	;                 
+	CALL	PRINT
+	MOV	SPEED, R4
+	CALL	Z20074		;                  --                 
+
+	CALL	SPRSDR		;                   
+;                                       
+MENUPO:	MOV	#33, R0		; Esc
+	CALL	TTYOUT
+	MOV	#131, R0	;                 
+	CALL	TTYOUT
+	MOV	MENUP, R0
+	ADD	#43, R0		;       
+	CALL	TTYOUT
+	MOV	#47, R0		;        
+	CALL	TTYOUT
+
+Z01404:	CALL	WTKEY		;                         
+;                                           
+Z01406:	MOV	MENUP, R2	;                   
+	CMPB	R0, #15		; Enter?
+	BEQ	Z01430
+	CMPB	R0, #40		;       ?
+	BEQ	Z01430		;    =>          
+	CMP	R0, #000012
+	BNE	Z01504
+;                  
+Z01430:	ASL	R2		; R2 * 2 -> R2
+	JMP	@MENUGO(R2)	;                                        
+;
+Z01504:	CMP	R0, #15501	;              ?
+	BNE	Z01530
+	CMP	R2, #2		;               < 2 ?
+	BMI	Z01404
+	MOV	#34, R0		;                       
+	CALL	TTYOUT
+	DEC	MENUP
+	BR	Z01404
+Z01530:	CMP	R0, #15502	;             ?
+	BNE	Z01404
+	CMP	R2, #5		;               >= 5 ?
+	BPL	Z01404
+	MOV	#35, R0		;                      
+	CALL	TTYOUT
+	INC	MENUP
+Z01552:	BR	Z01404
+; 1 - GAME
+MENU1:	CALL	GAME
+	BR      Z01060
+; 2 - LEVEL
+MENU2:  MOV	LEVEL, R0
+	CMP	R0, #10.	;                   >= 10. ?
+	BPL	$21		;    =>          
+	INC	LEVEL
+	BR	$22
+$21:	MOV	#1, LEVEL	;                      1
+$22:	MOV	#MENUL2, R1	;                                  
+	CALL	PRINT
+	MOV	LEVEL, R4
+	CALL	Z20074		;                      --                 
+	BR      MENUPO		;                               
+; 3 - SPEED
+MENU3:	MOV	SPEED, R0
+	CMP	R0, #9.		;          > 9. ?
+	BPL	$31		;    =>          
+	INC	SPEED
+	BR	$32
+$31:	MOV	#1, SPEED	;                       1
+$32:	MOV	#MENUL3, R1	;                                  
+	CALL	PRINT
+	MOV	SPEED, R4
+	CALL	Z20074		;                  --                 
+	BR      MENUPO		;                               
+; 4 - COLOR
+MENU4:	MOV	COLOR, R0
+	INCB	R0
+	MOV	R0, COLOR
+	BIC	#177775, R0
+	ROR	R0
+	ADD	#60, R0
+	MOVB	R0, @#<MENUSC + 10>
+	MOVB	R0, @#<MENUSC + 13>
+	CALL	SPSWAP		;                             
+	CALL	SPRSDR		;                   
+	JMP	MENUDR		;                  
+; 4 - EXIT
+MENU5:	JMP	FINISH		;      ,                  
+
+MENUGO:	.WORD	0
+	.WORD	MENU1
+	.WORD	MENU2
+	.WORD	MENU3
+	.WORD	MENU4
+	.WORD	MENU5
+
+;
+;                
+;
+	.=001700
+Z01700::
+	.WORD	10		;
+Z01702:	.WORD	0		;                 ???          ,                 
+Z01704:	.WORD	0		;                         ,                  011410
+Z01706:	.WORD	0		;                                            
+Z01710:	.WORD	1		;                ;                     001770
+Z01712:	.WORD	0		;                                      :                  20.,                 
+Z01714:	.WORD	0		;                                 --                             ;                  023640 + 240. * (N - 1)
+Z01716:	.WORD	0		; ???                     5     ,                  022070,              4 --       
+Z01720:	.WORD	0		;               :                  043202,                640.
+				;                   :                  024000,                024000
+Z01722:	.WORD	0		;                      ???                  012600, 013160
+Z01724:	.WORD	0		;                      ???                  013660, 013704
+;                                 ,    5-       ,               011100
+Z01726:	.WORD	0		;               
+Z01730:	.WORD	0		;                         
+Z01732:	.WORD	1		;                     ??? 0/1/2/3; 2 --       
+Z01734:	.WORD	1		;               ??? 0/1/2/3/4
+Z01736:	.WORD	0		;                    ???         0                             5      
+;
+Z01740:	.WORD	0		;                                                        ???                = 011200,               -- 3      
+Z01742:	.WORD	103		;             "      "
+Z01744:	.WORD	104		;             "     "
+Z01746:	.WORD	101		;             "     "
+Z01750:	.WORD	102		;             "    "
+Z01752:	.WORD	40		;             "          "
+Z01754:	.WORD	0		; ???                0;                             
+Z01756:	.WORD	0		;                  :                  10.,                 
+Z01760:	.WORD	0		; ???                  1,          ,                 ,                0,                Z01762
+Z01762:	.WORD	0		;                  ;           20.
+Z01764:	.WORD	0		; ???       <22070 + 10. * N>
+Z01766:	.WORD	0		;                             ;                  0                 
+Z01770:	.WORD	1		;                      
+Z01772:	.WORD	31		; 25. --              
+Z01774:	.WORD	0		; 011410 +                   --                                         
+Z01776:	.WORD	0		;                         
+
+STACK:	.WORD	40000		;                    SP
+MENUP:	.WORD	1		;                   
+LEVEL:	.WORD	1		;                                 
+SPEED:	.WORD	5		;               1..9
+COLOR:	.WORD	0		;                       
+
+;             :                                            
+SPRSDR:
+	MOV	#SPRDAT, R4	;                                               
+	MOV	#115367, R3	;                
+	MOV	#30., R5
+10$:	CLR	R2
+	MOVB	(R4)+, R2	;             
+	MOV	#Z13540, R1	;                        
+	TST	R2		
+	BEQ	30$
+20$:	ADD	#20., R1	;                             
+	SOB	R2, 20$
+30$:	;                          R1
+	MOV	#10., R2
+40$:	MOV	R3, @#176640
+	MOV	(R1)+, @#176642
+	ADD	#80., R3	; next line
+	SOB	R2, 40$
+	SUB	#799., R3	;       10.      ,      8                
+	BIT	#7, R5		;           8-                        ?
+	BNE	50$		;     =>          
+	ADD	#<800.-8.>, R3	;                             
+50$:	SOB	R5, 10$		;                
+	RETURN
+
+;           -         ,                            
+SPRDAT:	.BYTE	  3,3,3,7,0,5,0
+	.BYTE	0,0,0,0,7,2,2,2
+	.BYTE	6,0,4,0,7,6,0,0
+	.BYTE	2,2,2,2,7,1,1
+	.EVEN
+
+MENUSC:	;                              
+	.BYTE	33,246,62	;               40x24
+	.BYTE	33,240,67	;             
+	.BYTE	33,241,60	;                 0
+	.BYTE	33,242,60	;           0
+	.BYTE	14		; Clear screen
+	.BYTE	33,131,40,51	;                 
+	.ASCII	/L O D E    R U N N E R/<25><25>
+	.BYTE	33,131,61,46	;                 
+	.ASCII	/BK version Markov A (Action)/<25>
+	.ASCII	/      UKNC port 2015 Nikita Zimin/<25>
+	.BYTE	33,240,63	;             
+	.BYTE	33,131,65,53	;                                              
+	.BYTE	0
+
+.INCLUDE /VERSIO.MAC/
+
+MENUL2:	;                                                                   
+	.BYTE	33,131,45,61	;                 
+	.BYTE	0
+MENUL3:	;                                              
+	.BYTE	33,131,46,61	;                 
+	.BYTE	0
+
+MENUS2:
+	.ASCIZ	/1 GAME/
+	.ASCIZ	/2 LEVEL/
+	.ASCIZ	/3 SPEED/
+	.ASCIZ	/4 COLOR/
+	.ASCIZ	/5 EXIT/
+	.EVEN
+
+EXITSC:	;                                    
+	.BYTE	33,246,061	;               80x24
+	.BYTE	33,240,67	;             
+	.BYTE	33,241,61	;                 1
+	.BYTE	33,242,61	;           1
+	.BYTE	14		;               
+	.ASCII	/BYE!/
+	.BYTE	0
+	.EVEN
+
+;             :                              : R0 =                  
+WTKEY:	.TTYIN			;          R0
+	CMPB	R0, #33
+	BNE	2$
+	.TTYIN
+	BIS	#15400,R0	; #33               
+2$:	RETURN
+
+;             :                               :      C         =            , R0 =                  
+GETKEY:	.TTINR			;            ?
+	BCS	3$		;             =>        
+	CMPB	R0, #33		; Esc ?
+	BNE	1$		
+	.TTYIN
+	BIS	#15400,R0	; #33               
+1$:	CLC			;               C --             
+2$:	RETURN
+3$:	CLR	R0		;                              
+	SEC			;                             
+	RETURN
+
+;             :                       : R0 =       
+TTYOUT:	TSTB	@#177564	;                 0      ?
+	BPL	TTYOUT		;     =>    
+	MOVB	R0, @#177566	;                        0
+	RETURN
+
+;             :              : R1 =             ,                    0;        R0
+PRINT:
+PR0:	MOVB	(R1)+, R0	;             ?
+	BEQ	PR2		;    =>          
+PR1:	TSTB	@#177564	;                 0      ?
+	BPL	PR1		;     =>    
+	MOV	R0, @#177566	;                        0
+	BR	PR0
+PR2:	RETURN
+
+;            :                                                    
+PAUSE:	; Pause to let PPU finish the previous commands
+	MOV	#177777, R5
+PAUSE0:	NOP
+	SOB	R5, PAUSE0
+	RETURN
+
+;             :                         /                              --             
+SPSWAP:	MOV	#SPRITE, R0
+	MOV	#<<SPREND - SPRITE> / 2>, R5
+1$:	SWAB	(R0)+
+	SOB	R5, 1$
+	RETURN
+
+GAMESC:	;                                  
+	.BYTE	33,246,62	;               40x24
+	.BYTE	14		; Clear screen
+	.BYTE	33,131,40,51	;                 
+	.BYTE	33,240,67	;             
+	.ASCII	/L O D E    R U N N E R/<25><25>
+	.BYTE	33,131,66,45	;                 
+	.ASCII	/SCORE       LIVES     LEVEL /
+	.BYTE	33,240,64	;             
+	.BYTE	0
+	.EVEN
+
+	.=004030
+;                               :        ,                
+Z04030:	MOV	#GAMESC, R1	;                                      
+	CALL	PRINT
+	MOV	Z01770, R4	;                           
+	CALL	Z20074		;                      --                 
+	CALL	LIVESP		;                          
+	CALL	Z20236		;                    
+	CALL	PAUSE		;                                                                  
+;                                             (80.,44.)-(560.,245.)
+Z04036:
+; Draw left/right lines
+	MOV	#103344, R1	; 100000 + 44.*50 + 40./8 - 1
+	MOV	#103403, R2	; R1 + 240./8 + 1
+	MOV	#202., R5	; Number of lines
+1$:	MOV	R1, @#176640
+	MOV	#100000, @#176642	; Left part
+	ADD	#80., R1	; Next line
+	MOV	R2, @#176640
+	MOV	#0400, @#176642	; Right part
+	ADD	#80., R2	; Next line
+	SOB	R5, 1$
+HLINES:	;     :                                      ;                            
+; Draw top/bottom lines
+	MOV	#103345, R1
+	MOV	#142665, R2	; R1 + 80.*201
+	MOV	#30., R5	; 240./8
+2$:	MOV	R1, @#176640
+	MOV	#177400, @#176642
+	INC	R1
+	MOV	R2, @#176640
+	MOV	#177400, @#176642
+	INC	R2
+	SOB	R5, 2$
+Z04156:	RETURN
+
+	.=005000
+Z05000::
+;	NOP	
+	CLR	Z01702		;                         ???
+	CLR	Z01762		;                          
+	CLR	Z01766		;                            
+	MOV	#Z22070, 001716	;                      
+	MOV	#<Z24220 - 240.>, R1
+	MOV	Z01710, R0	;                
+Z05034:	ADD	#000360, R1	; 240.                            
+	SOB	R0, Z05034	;                                        
+	MOV	R1, Z01714	;                                          
+	MOV	#Z11410, Z01704	;                              
+	MOV	R1, Z01706	;                                   
+	MOV	#103465, Z01720	;                    (                         800.)
+	MOV	#000024, Z01712	; 20.      
+;                
+Z05074:	MOV	Z01720, R3
+	MOV	#6, R5		; 6         5           = 30                   
+;         R5 --          
+Z05104:	MOV	Z01706, R1	;                                      
+	MOV	(R1), R0	;                       
+	MOV	#5, R4		; 5 --                             
+;         R4 --                     
+Z05116:	MOV	R0, R2
+	BIC	#107777, R2	;                      12-14 --                
+	MOV	#000014, R1	; 12.    
+Z05130:	ROR	R2		;                               
+	SOB	R1, Z05130	;                                        0-2     
+;                                                
+	MOV	Z01704, R1	;                                  
+	CMP	R2, #6		; R2 = 6 ?       ?
+	BNE	Z05160		;     =>          
+; R2 = 6 --       
+	BR	Z05456
+;
+Z05150:	MOVB	R2, (R1)
+Z05152:	BR	Z05270
+;
+Z05154:	INC	Z01766		;                    
+Z05160:	MOVB	R2, (R1)
+	CMP	R2, #000004	; R2 = 4 ?         ?
+	BNE	Z05240		;     =>          
+; R2 = 4 --     
+	CMP	Z01762, #000024	;               20. ?
+	BMI	Z05210		;    =>          
+Z05200:	CLR	R2
+;	NOP     
+	MOVB	R2, (R1)
+Z05206:	BR	Z05270
+;                  
+Z05210:	INC	Z01762		;                      
+	MOV	Z01716, R2	;       5-                      
+	MOV	R3, (R2)+	;                         
+	MOV	R1, (R2)+	;                                   
+	CLR	(R2)+
+	CLR	(R2)+
+	CLR	(R2)+
+	MOV	R2, Z01716	;                      
+	BR	Z05422
+; R2 != 4
+Z05240:	BR	Z05430
+;                 :                       5-           011100
+Z05242:	MOV	#Z11100, R2	;                     
+	MOV	R3, (R2)+	;               
+	MOV	R1, (R2)+	;                         
+	CLR	(R2)+
+	CLR	(R2)+
+	CLR	(R2)+
+	MOV	#000005, R2	; 5 --          
+	MOVB	R2, (R1)	;                        
+;	NOP	
+;                                
+Z05270:	CLC			;                              
+	ROL	R0              ; <
+	ROL	R0              ; <
+	ROL	R0              ; <
+	CALL	Z16712
+;                                   R2
+Z05304:	MOV	#Z13540, R1	;                        
+	TST	R2		
+	BEQ	Z05322
+Z05314:	ADD	#000024, R1	;                             
+	SOB	R2, Z05314
+;                               ; R1 =                 10      -- 8x10                 
+Z05322:	MOV	#000012, R2	;               10.      
+Z05326:	MOV	R3, @#176640
+	MOV	(R1)+, @#176642	;            8                         
+	ADD	#80., R3	;      80. --                                  
+	SOB	R2, Z05326	;                           
+	SUB	#799., R3	;       799. --                 10.            ,      8                       
+	DEC	R4		;                            
+	BNE	Z05116		;                          ,             
+	ADD	#000002, Z01706	;                                --                   
+	DEC	R5		;               
+	BNE	Z05104		;                          
+;                                    
+Z05360:	ADD	#800., Z01720	;           800. --      10.             
+	DEC	Z01712		;                           
+	BNE	Z05074		;               (001712)
+;                             --                                      
+Z05374:	MOV	Z01710, R2	;                     
+;	NOP	
+	ADD	#Z11000, R2	;                 011000
+	MOVB	(R2), R3	;                       
+	ADD	#Z11410, R3	;                                        
+	MOV	R3, Z01774	;             --                         
+	RETURN	
+;
+Z05422:	MOV	#000004, R2
+	BR	Z05270		;                                ,                    
+; R2 != 4
+Z05430:	CMP	R2, #000005
+	BNE	Z05270		;                                ,                    
+; R2 = 5 --        
+Z05436:	TST	Z01702		;                             ?
+	BEQ	Z05450		;    =>          
+	CLR	R2
+	BR      Z05150
+;
+Z05450:	INC	Z01702		;                         
+	BR	Z05242		;                 
+; R2 = 6 --       
+Z05456:	TST	Z11306
+	BEQ	Z05154
+	TSTB	(R1)
+Z05466:	BNE	Z05154
+	CLR	R2
+	BR	Z05270
+
+;                                     : R2 =               , R3 =                         
+Z05500:	CMP	Z01720, #024000	;                                   
+	BEQ	Z05526		;               =>              
+	MOV	#024000, R4
+Z05514:	CMP	(R4)+, R3	;       ?
+	BEQ	Z05602		;    =>        
+	CMP	R4, Z01720	;              ?
+	BNE	Z05514		;     =>           
+Z05526:	MOVB	(R3), R5	;                       
+	MOV	#Z13540, R4	;                        ,    10.               
+	TSTB	R5		;        #0 ?
+	BEQ	Z05546		;    =>          
+Z05540:	ADD	#000024, R4	;        20. --                 
+	SOB	R5, Z05540	;            
+Z05546:	MOV	#000012, R5	; 10    
+Z05552:	MOV	R2, @#176640	;                            
+	MOV	(R4)+, @#176642	;           8                 
+	ADD	#80., R2	;                          
+	SOB	R5, Z05552	;            
+	SUB	#800., R2	;                                    10.            
+	MOV	Z01720, R4	;                                       
+	MOV	R3, (R4)	;                                   
+	ADD	#000002, Z01720
+Z05602:	RETURN	
+;
+Z05604:	JMP	Z17700
+;                                 
+Z05610:	INC	R2		;      8                  
+	INC	R3		;                      
+	CALL	Z05500		;                       
+	DEC	R2		;       8                  
+	MOV	#000012, R5	; 10.    
+Z05632:	MOV	R2, @#176640
+	BIS	(R0)+, @#176642	;                 
+	INC	R2
+	MOV	R2, @#176640
+	BIS	(R0)+, @#176642	;                 
+	ADD	#79., R2	;                           - 8         
+	SOB	R5, Z05632	;            
+Z05644:	RETURN	
+;
+Z05646:	JMP	Z17726
+;                                  
+Z05652:	DEC	R2		;       8                  
+	DEC	R3		;                       
+	CALL	Z05500		;                       
+	MOV	#000012, R5	; 10    
+Z05670: MOV	R2, @#176640	;                            
+	BIS	(R0)+, @#176642	;                 
+	INC	R2
+	MOV	R2, @#176640
+	BIS	(R0)+, @#176642	;                 
+	ADD	#79., R2	;                           - 8         
+	SOB	R5, Z05670	;            
+Z05702:	RETURN	
+;                     ???; R2 =               , R0 =              
+Z05704:	CMP	R0, #012000	; R0 < 012000 ?
+	BMI	Z05740		;    =>                5                  
+	ADD	#800., R2	;      10               
+	CALL	Z05500		;                       
+	SUB	#800., R2	;       10               
+	SUB	#000036, R3	;                                     
+	CALL	Z05500		;                       
+	BR	Z05770
+Z05740:	ADD	#400., R2	;      5               
+	CALL	Z05500		;                       
+	SUB	#800., R2	;       10               
+	SUB	#000036, R3	;                                     
+	CALL	Z05500		;                       
+	ADD	#400., R2	;      5               
+Z05770:	MOV	#000012, R5	; 10    
+Z05774: MOV	R2, @#176640
+	BIS	(R0)+, @#176642	;                
+	ADD	#80., R2	;                          
+	SOB	R5, Z05774	;            
+Z06004:	RETURN	
+;                     ???; R2 =               , R0 =              
+Z06006:	CMP	R0, #012000	; R0 < 012000 ?
+	BMI	Z06046		;    =>                5           
+	SUB	#800., R2	;       10             
+	CALL	Z05500		;                       
+	ADD	#800., R2	;      10             
+	ADD	#000036, R3	;                                    
+;	NOP	
+;	NOP	
+	CALL	Z05500		;                       
+	BR	Z06076
+Z06046:	SUB	#400., R2	;       5             
+	CALL	Z05500		;                       
+	ADD	#800., R2	;      10             
+	ADD	#000036, R3	;                                    
+	CALL	Z05500		;                       
+	SUB	#400., R2	;       5             
+Z06076:	MOV	#000012, R5	; 10    
+Z06102:	MOV	R2, @#176640
+	BIS	(R0)+, @#176642	;                
+	ADD	#80., R2	;                          
+	SOB	R5, Z06102	;            
+Z06112:	RETURN	
+;              ???               ; R0 =                         
+Z06114:	CMP	R1, #000001
+	BNE	Z06130
+	CALL	Z06152
+	BR	Z06150		;         
+Z06130:	CMP	R1, #000003
+	BNE	Z06144
+	CALL	Z06152
+	BR	Z06150		;         
+Z06144:	CALL	Z16366
+Z06150:	RETURN	
+;              ???               ; R0 =                         
+Z06152:	ADD	#000036, R0	;                             
+	TSTB	(R0)		;                ?
+	BNE	Z06172		;     =>          
+	MOV	#000002, Z01732	;           --       
+	BR	Z06334		;         
+Z06172:	CMPB	(R0), #000007	;                   ?
+	BNE	Z06214		;     =>          
+	MOV	#000002, R4
+	CALL	Z06460
+	TST	R5
+	BNE	Z06334		;         
+Z06214:	SUB	#000036, R0	;                                           
+	CMPB	(R0), #000007	;          ?
+	BNE	Z06254		;     =>          
+	SUB	#000036, R0	;                              
+	CMPB	(R0), #000007	;          ?
+	BNE	Z06254		;     =>          
+	MOV	#000004, R4
+	CALL	Z06460
+	TST	R5
+	BNE	Z06334		;         
+Z06254:	JMP	Z17404
+;
+Z06260:	INC	R0
+	CMP	R1, #000001
+	BEQ	Z06274
+	SUB	#000002, R0
+Z06274:	CMPB	(R0), #000001
+	BMI	Z06332		; R1->R3        
+	CMPB	(R0), #000002
+	BHI	Z06332		; R1->R3        
+	CMP	R1, #000001
+	BNE	Z06324		; #1->R3        
+	MOV	#000003, R3
+	BR	Z06334		;         
+Z06324:	MOV	#000001, R3
+	BR	Z06334		;         
+Z06332:	MOV	R1, R3
+Z06334:	RETURN	
+;
+Z06336:	JMP	Z16422
+;
+Z00634:	CALL	Z16556
+Z06352:	.WORD	504
+;
+Z06354:	MOV	#3, R5
+Z06360:	CALL	Z16556
+Z06364:	.WORD	504
+;Z06366:	NOP
+;Z06370:	NOP
+;Z06372:	NOP
+;Z06374:	NOP
+;Z06376:	NOP
+;Z06400:	NOP
+;Z06402:	NOP
+Z06404:	CMP	R1, #000002
+	BNE	Z06420	
+	ADD	#000037, R0	;                    +1        
+	BR	Z06424
+Z06420:	SUB	#000035, R0	;                     +1        
+Z06424:	CMPB	(R0), #000007	;          ?
+	BNE	Z06436		;     =>          
+	MOV	R1, R3
+	BR	Z06456
+Z06436:	CMP	R1, #000002
+	BNE	Z06452
+	MOV	#000004, R3
+Z06450:	BR	Z06456
+Z06452:	MOV	#000002, R3
+Z06456:	RETURN	
+;              ??? (                 ); R0 =                         ; R4 =            ?
+Z06460:	MOV	Z11102, R2
+	CALL	Z06572		;            R2        ,   R3       
+	MOV	R3, R5		;                  
+	MOV	R2, Z01706	;                  
+	MOV	R0, R2
+	CALL	Z06572		;            R2        ,   R3       
+	CMP	R3, R5		;              ?
+	BMI	Z06520		;    =>          
+	CMP	R4, #000004
+	BEQ	Z06562
+	BR	Z06532
+Z06520:	CMP	R3, R5		;                 ?
+	BEQ	Z06532		;    =>          
+	CMP	R4, #000002
+	BEQ	Z06562
+Z06532:	CMP	R2, Z01706      ;               ?         ?
+	BMI	Z06550          ;    =>          
+	CMP	R4, #000003
+	BEQ	Z06562
+	BR	Z06556
+Z06550:	CMP	R4, #000001
+	BEQ	Z06562
+Z06556:	JMP	Z23150
+Z06562:	JMP	Z23202
+;Z06566:	NOP
+Z06570:	RETURN	
+;             : R2 =                         ;              R2        ,   R3       .
+Z06572:	CLR	R3
+	SUB	#Z11410, R2	;                               ,                
+Z06600:	INC	R3
+	CMP	R2, #000036	; R2 < 30. ?
+	BMI	Z06570		;            RETURN
+	SUB	#000036, R2	;       30. --                              
+Z06614:	BR	Z06600
+;              ??? R0 =                     
+Z06616:	MOV	Z01730, R3	;                         
+	MOV	Z01726, R2	;               
+	CALL	Z20376
+;	NOP	
+;	NOP	
+	ADD	#400., R2	;         5             
+	MOV	#000012, R5	; 10.    
+Z06646: MOV	R2, @#176640	;                            
+	MOV	(R0)+, @#176642	;           8                 
+	ADD	#80., R2	;                          
+	SOB	R5, Z06646	;            
+	SUB	#800., R2	;                 10.           
+	MOV	R2, Z01726	;                               
+	INC	Z01736
+	CMP	Z01736, #000002
+	BNE	Z06760		;          =>            RETURN
+; R2 = 30.
+Z06702:	CLR	Z01736
+	MOV	Z01730, R2	;                              
+	ADD	#000036, Z01730	;           30. --                   
+	ADD	#000074, R2	;      60. --                   
+	BR	Z06762
+Z06730:	TST	Z01760
+	BNE	Z06744
+	CMPB	(R2), #000010
+	BEQ	Z06756
+Z06744:	CLR	Z01732
+	CLR	Z01734
+	BR	Z06760
+Z06756:	CLRB	(R2)
+Z06760:	RETURN	
+Z06762:	TSTB	(R2)
+	BEQ	Z06760
+	CMPB	(R2), #000006
+	BEQ	Z06760
+Z06774:	BR	Z06730
+;Z06776:	.WORD	0		; ???
+;
+;              --                             ;           001726                   5-       
+Z07000:	MOV	#Z13160, Z01722	;                     
+	MOV	#013704, Z01724	;                     
+	MOV	#024000, Z01720
+	MOV	Z01732, R0	;                       
+	CMP	R0, #000001
+	BNE	Z07040
+Z07034:	JMP	Z07776
+;
+Z07040:	CMP	R0, #000002	;        ?
+	BNE	Z07062		;     =>          
+	MOV	Z01724, R0	;                     
+	CALL	Z06616
+	JMP	Z07776
+Z07062:	JMP	Z16336
+
+Z07070: NOP;STUB	MOV	177714, R0
+	TST	R0
+	BR	Z07104
+Z07100:	JMP	Z07776
+Z07104:	CMP	R0, Z01752	;             "          " ?
+	BNE	Z07266		;     =>          
+	MOV	Z01730, R1	;                              
+	ADD	#000036, R1	;                             
+	CMPB	(R1), #2	;          2 -                 ?
+	BNE	Z07266		;     =>          
+	BR	Z07170
+;
+Z07132:	.TTINR			;               ?
+	BCS	Z07262		;     =>          
+	CMPB	R0, Z01752	;             "          " ?
+	BNE	Z07262		;     =>          
+	MOV	Z01730, R1	;                              
+	ADD	#000036, R1	;                             
+	CMPB	(R1), #000002	;          2 -                 ?
+	BNE	Z07262		;     =>          
+Z07170:	CMP	Z01740, #Z11270	;                             ?
+	BHI	Z07262
+	JMP	Z16252
+Z07204:	NOP	
+	CALL	Z17014
+	CALL	Z17102
+	MOV	#000012, R5	; 10.    
+Z07222: MOV	R2, @#176640
+	CLR	@#176642	;           8         
+	ADD	#80., R2	;                            
+	SOB	R5, Z07222	;            
+	MOVB	#000010, (R1)	;                         "          "      
+	MOV	Z01740, R3	;                                    
+	MOV	R1, (R3)+	;                              
+	SUB	#800., R2	;      10.           
+	MOV	R2, (R3)+	;                           
+	MOV	Z11310, (R3)+	;                                  
+	MOV	R3, Z01740	;                                            
+Z07262:	CALL	Z17502		;                                                
+Z07266:	MOV	Z01730, R1	;                              
+	ADD	#000036, R1	;           30. --                   
+	JMP	Z16300
+Z07302:	CMPB	(R1), #000010	; 8. -- "          "                 ?
+	BNE	Z07336
+;     :                                                 --              
+Z07310:	MOV	#000002, Z01732	;           --       
+	CALL	Z23052
+	MOV	Z01724, R0	;                     
+	CALL	Z06616
+	JMP	Z07776
+Z07336:	MOV	Z01730, R1	;                              
+	CMP	R0, Z01744	;             "     " ?
+	BNE	Z07570		;     =>          
+;      --                                
+Z07350:	DEC	R1		;             
+	CMPB	(R1), #000001	;               ?
+	BMI	Z07366
+	CMPB	(R1), #000003
+	BMI	Z07560
+Z07366:	CMP	Z01734, #000003	; 
+	BEQ	Z07452		; 
+	TST	Z01736
+	BEQ	Z07452
+Z07404:	JMP	Z14572
+Z07410:	CMP	Z01734, #000003
+	BNE	Z07430
+	CLR	Z01734
+	JMP	Z16204
+Z07430:	JMP	Z14572
+;
+Z07434:	SUB	Z01736, R5
+	MOV	R5, Z01736
+Z07444:	BR	Z07452
+Z07446:	JMP	Z16250
+;
+Z07452:	MOV	Z01730, R3	;                              
+	MOV	Z01726, R2	;                    
+	CALL	Z15672		; R0 -> R5;                         Z01722 + 120. -> R0
+	MOV	Z01736, R5
+	TST	R5
+	BEQ	Z07504
+Z07476:	ADD	#000050, R0	;      40.
+	SOB	R5, Z07476
+Z07504:	CALL	Z05646
+	INC	Z01736
+	CMP	Z01736, #000003
+	BNE	Z07546
+	SUB	#1, Z01726	;    8                       
+	DEC	Z01730		;                   --                       
+	CLR	Z01732
+	CLR	Z01736
+Z07546:	MOV	#000003, Z01734
+	JMP	Z07776
+Z07560:	JMP	Z07410
+;
+Z07564:	JMP	Z07776
+;                                     (   "     ")
+Z07570:	CMP	R0, Z01742	;             "      " ?
+	BNE	Z07772		;     =>          
+;      --                                 
+Z07576:	INC	R1		;              
+	CMPB	(R1), #000001
+	BMI	Z07614
+	CMPB	(R1), #000003
+	BMI	Z07636
+Z07614:	CMP	Z01734, #000001
+	BEQ	Z07676
+	TST	Z01736
+	BEQ	Z07676
+	JMP	Z14572
+Z07636:	CMP	Z01734, #000001
+	BNE	Z07656
+	CLR	Z01734
+	JMP	Z16204
+Z07656:	JMP	Z14572
+;
+Z07662:	.WORD	172052
+;
+Z07670:	BR	Z07676
+Z07672:	JMP	Z16270
+;
+Z07676:	MOV	Z01730, R3	;                              
+	MOV	Z01726, R2	;                    
+	MOV	Z01722, R0	;                     ??
+	MOV	Z01736, R5
+	TST	R5
+	BEQ	Z07730
+Z07722:	ADD	#000050, R0	;      40.
+	SOB	R5, Z07722
+Z07730:	CALL	Z05604
+	INC	Z01736
+	CMP	Z01736, #000003
+	BEQ	Z07762
+Z07750:	MOV	#000001, Z01734
+	JMP	Z07776
+Z07762:	CLR	Z01732
+	JMP	Z14044
+;
+Z07772:	JMP	Z14066		;                                      
+;
+Z07776:	RETURN	
+
+	.=010000
+Z10000::
+	.BLKW	4
+Z10010:	.BLKW	9.		;        --                 
+
+;                        
+Z10076:	CLR	Z11314		;                            
+Z10102:	JMP	Z15636		;                 
+;
+Z10106:	TST	Z11110
+	BNE	Z10120
+	MOV	R0, Z11314	;                          
+Z10120:	RETURN	
+;              
+Z10122:	ADD	#000036, R1	;                           
+	CMPB	(R1), #000003	;       ?
+	BNE	Z10140		;     =>          
+	JMP	Z14376
+Z10140:	JMP	Z14362
+Z10144:	SUB	#000002, R0
+	CMPB	(R0), #000001
+	BMI	Z10164
+	CMPB	(R0), #000003
+	BMI	Z10212
+Z10164:	MOV	#000003, R4
+	CALL	Z06460
+	TST	Z01704
+	BNE	Z10206
+Z10202:	MOV	R4, R3
+Z10204:	RETURN
+Z10206:	TST	R5
+	BNE	Z10204
+Z10212:	ADD	#000037, R0	;                            + 1      
+	CMPB	(R0), #000006	; 6 -       ?
+	BMI	Z10250
+	MOV	#2, R4
+	CALL	Z06460
+	TST	Z01704
+	BNE	Z10244
+	BR	Z10202
+Z10244:	TST	R5
+	BNE	Z10204
+Z10250:	SUB	#000036, R0	;                            
+	CMPB	(R0), #000007	; 7 -         ?
+	BNE	Z10316
+Z10274:	MOV     #4, R4
+	CALL    Z06460
+	TST     Z01704
+	BEQ     Z10202
+	TST     R5
+	BNE     Z10204
+Z10316:	TST	Z01704
+	BEQ	Z10334
+	CLR	Z01704
+Z10330:	JMP	Z17410
+;
+Z10334: MOV	Z01730, R0	;                              
+Z10340:	JMP	Z06260
+
+	.=010700
+Z10700:	;                       --                   
+	.WORD	016030,016030,012050,036074,014030,014030,014034,020004,020006,060000
+	.WORD	014070,014070,012050,036074,036074,034034,014030,020004,022044,002004
+Z10750:	;        --                   
+	.WORD	177777,100601,136675,122645,116635,122645,122645,136675,100601,177777
+
+;                                 
+	.=011000
+Z11000::
+	.BYTE	25, 24, 01, 02, 17, 01, 27, 24, 20, 00
+	.BYTE	22, 35, 05, 15, 34, 16, 02, 30, 14, 34
+	.BYTE	34, 34, 33, 34, 35
+	.EVEN
+
+;              ???
+Z11040:	INC	Z01714		; 
+	TST	Z01754
+	BEQ	Z11056
+;
+Z11056:	RETURN	
+
+;              ???
+Z11066:	CLR	Z01714
+Z11072:	JMP	Z17004
+
+	.=011100
+Z11100::
+	.BLKW	5		;TODO:         ,                     
+Z11102	= Z11100 + 2
+Z11104	= Z11100 + 4
+Z11106	= Z11100 + 6
+Z11110	= Z11100 + 10		;      0,                                  Z11314
+
+;                     : R2 =            
+Z11112:	NOP	;TSTB	177660
+	BPL	Z11126
+Z11120:	NOP	;TST	177662
+	RETURN
+Z11126:	MOV	(R2)+, R4
+	MOV	(R2)+, R3
+Z11132:	CALL	Z17200
+	SOB	R3, Z11132
+Z11140:	JMP	Z20744
+
+Z11144:	.ASCII	/NE TOT TIP FAJLA !!!/
+	.EVEN
+
+	.=011200
+Z11200::
+	.BLKW	40		;        3-                              
+Z11202	= Z11200 + 2		;               
+Z11204	= Z11200 + 4
+Z11270	= Z11200 + 70
+;
+Z11300:	.WORD	1		;                                            ???
+Z11302:	.WORD	0		;                           ,         10. =>                  
+Z11304:	.WORD	0		; ???          ,                 
+Z11306:	.WORD	0		; ???          ,                 ;                    
+Z11310:	.WORD	0		;                      ???                  70,            /           3
+Z11312:	.WORD	0		; ???          ,                0
+Z11314:	.WORD	32		;                              ;                  Z11110 = 0
+Z11316:	.WORD	177777		;                            ???                                 
+
+;                         ,                , 30.               , 600.           
+	.=011410
+Z11410::
+	.BLKB	600.
+	.BYTE	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1  ;    
+
+;               
+SPRITE:
+Z12600:		;                                      
+	.WORD	140300,000000,140300,000001,040100,000000,170360,000401,174350,001407
+	.WORD	164350,000000,160340,000000,130040,000401,110060,000401,010060,000000
+	.WORD	000000,003006,000000,003016,000000,001002,100200,003407,140300,017437
+	.WORD	120240,003407,100000,003407,100000,002415,140300,002415,040300,002014
+	.WORD	000000,000000,000000,014030,000000,014070,000000,017074,000000,077176
+	.WORD	000000,037074,000000,016074,000000,036074,000000,017036,000000,014030
+Z12770:
+	.WORD	000000,001403,100000,001403,000000,001002,100200,007417,160340,013437
+	.WORD	000000,013427,000000,003407,100200,002015,100200,006011,000000,006010
+	.WORD	060140,000000,070140,000000,040100,000000,160340,000401,174370,001403
+	.WORD	160340,002405,160340,000000,130240,000001,130240,001403,030040,001402
+	.WORD	000000,000000,014030,000000,016030,000000,036170,000000,077176,000000
+	.WORD	036174,000000,036070,000000,036074,000000,074170,000000,014030,000000
+Z13160:		;                                        
+	.WORD	140300,000000,140300,000000,040100,000000,160340,000000,150320,000401
+	.WORD	140300,000000,120240,000000,020040,000401,010020,000401,010020,000000
+	.WORD	000000,003006,000000,003006,000000,001002,100200,001403,040100,007417
+	.WORD	000000,001403,000000,001002,100200,002405,000000,002004,000000,002004
+	.WORD	000000,000000,000000,014030,000000,014030,000000,006014,000000,017076
+	.WORD	000000,007014,000000,006014,000000,016034,000000,007016,000000,004010
+Z13350:
+	.WORD	000000,001403,000000,001403,000000,001002,000000,003407,100200,005413
+	.WORD	000000,001403,000000,002405,100200,002004,100200,004010,000000,004010
+	.WORD	060140,000000,060140,000000,040100,000000,140300,000401,170360,001002
+	.WORD	140300,000000,040100,000000,120240,000401,020040,000000,020040,000000
+	.WORD	000000,000000,014030,000000,014030,000000,030060,000000,076170,000000
+	.WORD	030160,000000,030060,000000,034070,000000,030160,000000,010020,000000
+Z13540:		;         8-                                   ,    10.               
+	.WORD	000000,000000,000000,000000,000000,000000,000000,000000,000000,000000	; 0 --      
+	.WORD	177400,177400,177400,177400,177400,177400,177400,177400,177400,177400	; 1 --               
+Z13610:	.WORD	175400,175400,175400,175400,000000,157400,157400,157400,157400,000000	; 2 --                
+	.WORD	000000,177777,000000,000000,000000,000000,000000,000000,000000,000000	; 3 --       
+Z13660:	.WORD	014030,055132,045122,077176,036074,036074,014030,022044,022044,022044	; 4 --      (     )
+Z13704:	.WORD	014030,055132,045122,036074,014030,014030,002040,022044,022044,063146	; 5 --         (     )
+	.WORD	000000,014030,032044,065102,065112,077176,077176,077176,077176,000000	; 6 --       
+	.WORD	041000,041000,077000,041000,041000,041000,041000,077000,041000,041000	; 7 --         
+SPREND:	;                     
+	.WORD	0,0,0,0,0,0,0,0,0,0	;                                     "            "       
+	.BLKW	8.
+
+Z14044:	ADD	#1, Z01726	;                                    
+	INC	Z01730		;                                         
+	CLR	Z01736
+	JMP	Z07750
+;                                    
+Z14066:	CMP	R0, Z01746	;             "     " ?
+	BNE	Z14350		;     =>          
+;      --                                
+Z14074:	CMPB	(R1), #000007	;         ?
+	BNE	Z14264		;     =>          
+	SUB	#000036, R1	;               
+	CMPB	(R1), #000007	;                  ?
+	BNE	Z14260
+	CMP	Z01734, #000004	;      ?
+	BEQ	Z14140
+	TST	Z01736
+	BEQ	Z14140
+Z14132:	JMP	Z14572
+	NOP
+Z14140:	MOV	Z01730, R3	;                              
+	NOP	
+	NOP	
+	TST	Z01736
+	BNE	Z14164
+	MOV	#Z10700, R0
+	BR	Z14170
+Z14164:	MOV	#Z13660, R0
+Z14170:	TST	Z01760
+	BNE	Z14202
+	ADD	#000024, R0	;      20.
+Z14202:	SUB	#400., Z01726	;                 5           
+	CALL	Z15716
+	INC	Z01736
+	CMP	Z01736, #000002
+	BNE	Z14246
+	SUB	#000036, Z01730	;                   --               
+	CLR	Z01732
+	CLR	Z01736
+Z14246:	MOV	#000004, Z01734
+	JMP	Z07776
+Z14260:	ADD	#000036, R1	;                           
+Z14264:	MOV	Z01734, R0
+	TST	R0
+	BEQ	Z14344
+	CMP	R0, #000004
+	BNE	Z14312
+Z14302:	CLR	Z01734
+	JMP	Z16204
+Z14312:	CMP	R0, #000001
+	BNE	Z14324
+	JMP	Z07576
+Z14324:	CMP	R0, #000002
+	BEQ	Z14356
+	CMP	R0, #000003
+	BNE	Z14344
+	JMP	Z07350
+Z14344:	JMP	Z07776
+;                                     (   "     ")
+Z14350:	CMP	R0, Z01750	;             "    " ?
+	BNE	Z14554		;     =>          
+Z14356:	JMP	Z10122
+Z14362:	CMPB	(R1), #000007
+	BEQ	Z14376
+	SUB	#000036, R1	;                            
+	BR	Z14544
+Z14376:	CMP	Z01734, #000002
+	BEQ	Z14424
+	TST	Z01736
+	BEQ	Z14424
+Z14414:	JMP	Z14572
+;Z14420:	NOP
+;Z14422:	NOP
+Z14424:	MOV	Z01730, R3	;                              
+;	NOP	
+;	NOP	
+	TST	Z01736
+	BNE	Z14450
+	MOV	#Z10700, R0
+	BR	Z14454
+Z14450:	MOV	#Z13660, R0
+Z14454:	TST	Z01760
+	BNE	Z14466
+	ADD	#000024, R0	;      20.
+Z14466:	ADD	#400., Z01726	;         5               
+	CALL	Z15730
+	INC	Z01736
+	CMP	Z01736, #000002	; 
+	BNE	Z14532
+	ADD	#000036, Z01730	;                                 
+	CLR	Z01732
+	CLR	Z01736
+Z14532:	MOV	#000002, Z01734
+	JMP	Z07776
+Z14544:	CMP	Z01734, #000002
+	BEQ	Z14302
+Z14554:	MOV	Z01734, R0
+	CMP	R0, #000004
+	BNE	Z14312
+	JMP	Z14074
+Z14572:	MOV	Z01730, R1	;                              
+Z14576:	BR	Z14554
+
+;             :                                        
+Z14600:	MOV	#000012, Z01756	; 10. --                            
+	CALL	Z20540		;                              1
+;	NOP	
+	CALL	Z20364
+	CALL	Z16752		;                          
+;     :                                 
+Z14624:	MOV	Z01770, Z01710	;                                
+	CALL	Z04030		;                                               
+	CALL	Z15760		;                    
+	CALL	Z21636		;                               
+	CALL	Z11066
+	CALL	Z20172		;                       
+	MOV	#Z11200, Z01740	;                                                         
+;              --                     
+Z14664:	CLR	Z01760          ;                      = 0 --          
+	MOV	#Z11100, R0	;        --                            
+	MOV	#Z01726, R1	;       
+	MOV	#000005, R2	;   5    
+Z14704:	MOV	(R0)+, (R1)+	;                    
+	SOB	R2, Z14704	;            
+	CALL	Z07000		;                       
+	MOV	#Z11100, R0	;      --                           
+	MOV	#Z01726, R1	;         
+	MOV	#000005, R2	;   5    
+Z14730:	MOV	(R1)+, (R0)+    ;                    
+	SOB	R2, Z14730	;            
+;                       ,                            
+	MOV	#Z12600, Z01722	;                     
+	MOV	#Z13660, Z01724	;                     
+	MOV	#000001, Z01760	;                           
+;                         
+Z14756:	MOV	Z01760, R5	;                                
+	MOV	#<Z22070-12>, R0	;                   (Z22070 - 12)
+Z14766:	ADD	#000012, R0	;        10.
+	SOB	R5, Z14766	;            
+	MOV	R0, Z01764      ;                                  
+	MOV	#Z01726, R1	;       
+	MOV	#000005, R2     ;   5    
+Z15010:	MOV	(R0)+, (R1)+	;                    
+	SOB	R2, Z15010	;            
+;                                    
+	MOV	Z01732, R0	;                       
+	CMP	R0, #000001	; 
+	BEQ	Z15332          ; 
+	CMP	R0, #000002	;        ?
+	BNE	Z15046		;     =>          
+	MOV	Z01724, R0	;                          
+	CALL	Z06616
+	BR	Z15332
+Z15046:	TST	Z01736
+	BNE	Z15074
+	MOV	Z01730, R0	;                              
+	MOV	Z01734, R1
+	CALL	Z06114
+	MOV	R3, R0
+	BR	Z15106
+Z15074:	MOV	Z01734, R0
+Z15100:	MOV	Z01730, R1	;                              
+	BR	Z15136
+Z15106:	MOV	R0, R4
+	CALL	Z17544
+	TST	R5
+	BNE	Z15100
+	INC	Z01736
+	JMP	Z17152
+Z15130:	MOV	Z01730, R1	;                              
+	BR	Z15262
+Z15136:	ADD	#000036, R1	;      30. --               
+	CMPB	(R1), #000000	;               ?
+	BNE	Z15156		;     =>          
+;                      --              
+Z15150:	CALL	Z07310
+	BR	Z15332
+Z15156:	CMPB	(R1), #000010	; "          "       ?
+	BNE	Z15130		;     =>          
+	NOP	
+	NOP	
+	NOP	
+	NOP	
+	MOVB	#000005, (R1)
+	MOV	Z01726, R2	;                    
+	MOV	Z01730, R3	;                              
+	CALL	Z05526
+	ADD	#000001, R2	;      8         
+	INC	R3		;                
+	CALL	Z05526		;                (R3)
+	ADD	#799., R2	;      10                    8         
+	MOV	#000012, R5	; 10.    
+	MOV	Z01724, R0	;                          
+Z15242:	MOV	R2, @#176640
+	MOV	(R0)+, @#176642	;             8         
+	ADD	#80., R2	;                            
+	SOB	R5, Z15242	;            
+	JMP	Z16600
+;Z15256:	NOP
+;
+Z15260:	BR	Z15332
+;
+Z15262:	CMP	R0, #000003	;      ?
+	BNE	Z15276
+	CALL	Z07350		;                     
+	BR	Z15332
+Z15276:	CMP	R0, #000001	;       ?
+	BNE	Z15312		;     =>          
+	CALL	Z07576		;
+	BR	Z15332
+Z15312:	CMP	R0, #000004	;      ?
+	BNE	Z15326		;     =>          
+Z15320:	CALL	Z14074		;               
+	BR	Z15332
+Z15326:	CALL	Z14356		;              ??
+;                                                                                    
+Z15332:	MOV	Z01764, R0	;                               --                
+	MOV	#Z01726, R1	;         
+	MOV	#000005, R2	;   5    
+Z15346:	MOV	(R1)+, (R0)+	;                    
+	SOB	R2, Z15346	;            
+	INC	Z01760
+	CMP	Z01760, Z01762	;                  ?
+	BHI	Z15372		;      =>          
+	JMP	Z14756		;                  
+;                      --                                     
+Z15372:	CALL	Z16212		;         
+	JMP	Z17514
+;
+Z15402:	CMP	(R0), #000057	; 47.
+	BMI	Z15430
+	CLR	(R0)
+	CALL	Z20302		;                               1,             00000
+	CALL	Z20236		;                            
+	NOP	
+	NOP	
+	NOP	
+Z15430:	MOV	Z11102, R0
+	CMPB	(R0), #000006	;           ?
+	BNE	Z15510		;     =>          
+	NOP	
+	ADD	#000012, Z01776	;      10.      
+	INC	Z11302		;                                       
+	CLRB	(R0)		;                                   
+	CALL	Z17126
+	CMP	Z11302, #000012	;         10. ?
+	BMI	Z15510		;     =>          
+Z15474:	INC	Z01756		;                
+	CLR	Z11302		;                 
+	CALL	LIVESP		;                           
+Z15504:	CALL	Z20332
+Z15510:	TST	Z01766		;                            ?
+	BNE	Z15604		;          =>          
+	MOV	Z01774, R3	;                               
+	SUB	#Z11410, R3	;                                       
+	MOV	#103465, R1	;                          (TODO         )
+	ADD	R3, R1
+	MOV	#Z10750, R3	;              
+	MOV	#000012, R2	; 10.      
+Z15546:	MOV	R1, @#176640
+	MOV	(R3)+, @#176642	;             8         
+	ADD	#80., R1	;                     
+	SOB	R2, Z15546	;            
+Z15556:	BR	Z15742
+;
+Z15560:	JMP	Z20554
+;
+Z15564:	CALL	Z20706
+	CMP	Z01770, Z01772
+	BHI	Z15714
+Z15600:	JMP	Z15660
+;                        -         
+Z15604:	MOV	Z01762, R3	;                  
+	MOV	#000001, R1
+	MOV	#Z22072, R4	;                       022070 + 1      
+Z15620:	MOV	(R4), R2	;                                    
+	CMP	R0, R2		;               ?
+	BEQ	Z15636		;      =>        ,                 
+	ADD	#000012, R4	;                     
+	SOB	R3, Z15620	;                          
+	BR	Z15654		;               ,              =>                           
+Z15636:	CALL	Z17140		;                 
+	TST	Z01756		;                   = 0 ?
+	BEQ	Z15714		;    =>          
+	JMP	Z14624		;                       
+;
+Z15654:	JMP	Z14664		;                           
+;
+Z15660:	CLR	Z11306
+	JMP	Z14624
+
+Z15672:	MOV	R0, R5
+	MOV	Z01722, R0	;                     
+	NOP	
+	NOP	
+	NOP	
+	ADD	#000170, R0	;      120.
+	RETURN
+;	
+Z15714:	BR	Z15772		;                         0
+;
+Z15716:	MOV	Z01726, R2	;                    
+	CALL	Z05704		;               R0                           
+	RETURN	
+;
+Z15730:	MOV	Z01726, R2	;                    
+	CALL	Z06006		;               R0                            
+	RETURN	
+;
+Z15742:	TST	Z01766		;                     = 0 ?
+	BNE	Z15604		;     =>          
+	CMP	R0, Z01774
+	BNE	Z15604
+	BR	Z15560
+;              ???
+Z15760:	CALL	Z05000		;                    
+	INC	Z11306
+	RETURN
+;
+Z15772:	JMP	Z22664
+;Z15776:	NOP
+
+	.=016000
+;              --               ,                         
+Z16000::
+	CMP	Z01740, #Z11200	;                     ?
+	BLE	Z16164		;       =>        
+	MOV	#Z11204, R0	;                      + 4       --                              
+	MOV	#000010, R3	;         = 8
+Z16020:	DEC	(R0)		;                  ??
+	ADD	#000006, R0	;                     
+	SOB	R3, Z16020	;            
+	TST	Z11204		;                  ?
+	BGT	Z16164          ;       =>        
+	MOV	Z11202, R1	;                    
+	MOV	#Z13610, R2	;        "               "
+	MOV	#000012, R3	; 10.    
+Z16052:	MOV	R1, @#176640
+	MOV	(R2)+, @#176642	;              
+	ADD	#80., R1	;                      
+	SOB	R3, Z16052
+	SUB	#1600., R1	;    20.                  
+	MOV	R1, R5
+	BR	Z16166
+;
+Z16072:	NOP	
+	MOV	#011206, R3
+Z16100:	MOV	(R3)+, (R2)+	;                                            
+	CMP	R3, #Z11300
+	BNE	Z16100
+	SUB	#000006, Z01740	;                                                        
+	CMPB	(R1), #000005	;                      --        ?
+	BNE	Z16146		;       =>          
+	JMP	Z16626		;      =>          
+Z16130:	CALL	Z17114		;     
+Z16134:	MOV	R5, @#176640
+	BIS	(R0)+, @#176642	;          8                
+	ADD	#80., R5	;                            
+	SOB	R2, Z16134	;            
+	BR	Z16162
+Z16146:	CMP	R1, Z11102
+	BNE	Z16162
+Z16154:	MOV	#013704, R0
+	BR	Z16226
+Z16162:	BR	Z16244
+Z16164:	RETURN	
+Z16166:	MOV	Z11200, R0
+	MOV	R0, R1
+	MOV	#Z11200, R2
+	BR	Z16072
+Z16202:	RETURN
+Z16204:	CLR	Z01736
+Z16210:	RETURN	
+;              ???               
+Z16212:	MOV	#027000, R1	;         ??       -- #024000
+Z16216:	SOB	R1, Z16216	;              
+	CALL	Z17044
+Z16224:	RETURN
+Z16226:	SUB	#000036, Z11102	;                   --               
+	SUB	#800., Z11100	;    10                  
+	BR	Z16130
+Z16244:	CALL	Z17030
+Z16250:	RETURN	
+Z16252:	TST	Z01736
+	BNE	Z16272
+	MOV	#000003, Z01732
+	JMP	Z07204
+;
+Z16270:	RETURN	;STUB
+;
+Z16272:	JMP	Z14572
+;
+Z16276:	BNE     Z16224
+Z16300:	TSTB	(R1)		;                ?
+	BNE	Z16310		;     =>          
+Z16304:	JMP	Z07310
+;
+Z16310:	CMPB	(R1), #000006
+	BEQ	Z16304
+	CMP	Z01732, #000003
+	BNE	Z16332
+	JMP	Z07336
+Z16332:	JMP	Z07302
+;
+Z16336:	TST	Z01736
+	BEQ	Z16350
+	JMP	Z14572
+;
+Z16350:	TST	Z01754
+	BEQ	Z16362
+Z16356:	JMP	Z07070
+;
+Z16362:	JMP	Z07132		;                              
+;
+Z16366:	TST	R1
+	BNE	Z16400
+	CALL	Z06254
+	RETURN	
+Z16400:	CALL	Z06336
+Z16404:	RETURN	
+;
+Z16406:	TST     R3
+	BNE     Z16420
+	MOV     #000001, R3
+;	NOP     
+Z16420:	RETURN  
+;
+Z16422:	INC	R0
+	TSTB	(R0)
+	BEQ	Z16444
+	CMPB	(R0), #000006
+	BEQ	Z16444
+	CMPB	(R0), #000007
+	BNE	Z16474
+Z16444:	ADD	#000036, R0	;                             
+	TSTB	(R0)
+	BEQ	Z16470
+	MOV	#000001, R4
+	CALL	Z06460
+	TST	R5
+	BNE	Z16554
+Z16470:	SUB	#000036, R0	;                              
+Z16474:	SUB	#000002, R0
+	TSTB	(R0)
+	BEQ	Z16520
+	CMPB	(R0), #000006
+	BEQ	Z16520
+	CMPB	(R0), #000007
+	BNE	Z16550
+Z16520:	ADD	#000036, R0	;                             
+	TSTB	(R0)
+	BEQ	Z16544
+	MOV	#000003, R4
+	CALL	Z06460
+	TST	R5
+	BNE	Z16554
+Z16544:	SUB	#000036, R0	;                              
+Z16550:	JMP	Z06404
+Z16554:	RETURN	
+;
+Z16556:	CMP     011102, R0
+	BMI     Z16574
+	MOV     #000004, R3
+	SUB     R5, R3
+	MOV     R3, R5
+Z16574:	RETURN  
+Z16576:	ASL     @(SP)+
+;
+Z16600:	MOV	#000001, Z01732
+	ADD	#000036, Z01730	;                                       
+	ADD	#800., Z01726	;    10.                  
+	JMP	Z15260
+;            ,                   --                      
+Z16626:	MOV	#Z13660, R0
+	MOV	#Z22072, R2	; 022070 + 2
+Z16636:	CMP	(R2), R1
+	BEQ	Z16650
+	ADD	#000012, R2	;      10. --                   
+	BR	Z16636
+Z16650:	SUB	#000036, (R2)	;                         
+	SUB	#000002, R2
+	SUB	#800., (R2)	;    10.                  
+	ADD	#000004, R2
+	CLR	(R2)
+	JMP	Z16130
+;
+Z16676:	.BLKW	6
+;
+Z16712:	INC	Z01704
+	TST	Z11304
+	BEQ	Z16742
+	CMP	R2, #000004
+	BEQ	Z16740
+	CMP	R2, #000005
+	BNE	Z16742
+Z16740:	CLRB	(R1)
+Z16742:	RETURN	
+;
+Z16744:	.BLKW	3
+;
+;             : ???
+Z16752:	CLR	Z01776		;                          
+	INC	Z11304
+	RETURN	
+;
+;Z16764:	TST     Z01766
+;	BEQ     Z16776
+;	JMP     Z15604
+;Z16776:	.BLKW	1
+;
+;             : ???
+Z17000::
+	CALL	Z20316
+Z17004:	MOV	#000070, Z11310	;                      
+	RETURN	
+;
+Z17014:	MOV	Z01726, R2	;                    
+	ADD	#000003, Z11310	;                     
+Z17026:	RETURN	
+;
+Z17030:	MOVB	#000002, (R1)
+	SUB	#000003, Z11310	;                
+	RETURN	
+;              ???               
+Z17044:	CALL	Z16000		;                         
+	TST	Z11104		;     ?
+	BNE	Z17100		;     =>         
+	TST	Z11106		;     ?
+	BEQ	Z17100		;    =>         
+	TST	Z11110		;     ?
+	BNE	Z17100		;     =>         
+	CALL	Z17226		;     
+	NOP	
+Z17100:	RETURN	
+;
+Z17102:	ADD	#800., R2	;    10                  ??
+	CALL	Z17252		;     
+	RETURN	
+Z17114:	MOV	R5, R3
+	CALL	Z20430		;     
+	RETURN	
+Z17124:	RETURN
+Z17126:	DEC	Z01766		;                              
+	CALL	Z17322		;     
+Z17136:	RETURN	
+;
+Z17140:	DEC	Z01756		;                 
+	CALL	Z17360		;     
+Z17150:	RETURN	
+;
+Z17152:	ADD	#000002, R0
+	CMP	R0, #000005
+	BMI	Z17170
+	SUB	#000004, R0
+Z17170:	JMP	Z15100
+;
+Z17174:	NOP
+Z17176:	NOP
+;
+;     
+Z17200:	MOV	R4, R5
+	NOP ;STUB	MOV	#000300, @#177716	;TODO
+	NOP ;STUB
+Z17210:	SOB	R5, Z17210
+	MOV	R4, R5
+	NOP ;STUB	MOV	#000200, @#177716	;TODO
+	NOP ;STUB
+Z17222:	SOB	R5, Z17222
+Z17224:	RETURN	
+;
+Z17226:	MOV	#000060, R4
+Z17232:	CALL	Z17200		;     
+	ADD	#000040, R4
+	CMP	R4, #000200
+	BMI	Z17232
+	RETURN	
+Z17252:	MOV	#000100, R4
+Z17256:	CALL	Z17200		;     
+	ADD	#000003, R4
+	CMP	R4, #000200
+	BMI	Z17256
+	RETURN	
+Z17276:	MOV	#001000, R4
+Z17302:	CALL	Z17200		;     
+	SUB	#000010, R4
+	CMP	R4, #000600
+	BPL	Z17302
+	RETURN	
+Z17322:	MOV	#000400, R4
+	MOV	#000030, R3
+Z17332:	CALL	Z17200		;     
+	SOB	R3, Z17332
+	ASR	R4
+	MOV	#000030, R3
+Z17346:	CALL	Z17200		;     
+	SOB	R3, Z17346
+	JMP	Z20236		;                            
+Z17360:	MOV	#002000, R4
+Z17364:	CALL	Z17200		;     
+	SUB	#000005, R4
+	CMP	R4, #000600
+	BPL	Z17364
+Z17402:	RETURN	
+;
+Z17404:	INC	Z01704
+Z17410:	MOV	Z01730, R0	;                              
+	TST	R1
+	BEQ	Z17424
+	JMP	Z06260
+Z17424:	INC	R0
+	CMPB	(R0), #000001
+	BMI	Z17442
+	CMPB	(R0), #000003
+	BMI	Z17470
+Z17442:	MOV	#000001, R4
+	CALL	Z06460
+	TST	Z01704
+	BNE	Z17464
+	MOV	R4, R3
+Z17462:	RETURN	
+Z17464:	TST	R5
+	BNE	Z17462
+Z17470:	JMP	Z10144
+;
+Z17474:	SUB     (R2)+, @(R2)+
+Z17476:	JMP     Z06260
+;
+Z17502:	CALL	Z22770		;                            R0
+	CALL	Z10106		;                             
+Z17512:	RETURN	
+;
+Z17514:	CALL	Z11040
+	CMP	Z11314, #110	;               ?
+Z17526:	BNE	Z17534		;     =>          
+Z17530:	JMP	Z10076		;                          
+;
+Z17534:	MOV	#Z01714, R0	;
+Z17540:	JMP	Z15402
+;              ???; R4 = ???
+Z17544:	MOV	Z01730, R5	;                              
+	CMP	R4, #000001
+	BEQ	Z17564
+	CMP	R4, #000003
+	BNE	Z17660		;         
+; R4 = 1     3
+Z17564:	SUB	#Z11410, R5	;                         ,                
+Z17570:	CMP	R5, #000036	;          30.?              ?
+	BMI	Z17604		;      =>          
+	SUB	#000036, R5	;            30. --               
+	BR	Z17570		;            
+Z17604:	SUB	#000017, R5	;          15. --                
+	TST	R5
+	BMI	Z17632		;        0 =>          
+	CMP	R4, #000003
+	BEQ	Z17660		;         
+Z17622:	CMP	R5, #000015
+	BHI	Z17644		;        13. =>          
+	BR	Z17660		;         
+; R5             --                                 
+Z17632:	NEG	R5		;                   --            1..15
+	CMP	R4, #000001
+	BEQ	Z17660		;         
+	BR	Z17674
+Z17644:	CLR	R5
+	CLR     Z01734
+	CLR     Z01736
+	BR      Z17666
+Z17660:	MOV	#000001, R5	;           -- ???
+	RETURN	
+Z17666:	DEC     Z01736
+	RETURN  
+Z17674:	DEC	R5
+	BR	Z17622
+Z17700:	MOV	#000001, R4
+	CALL	Z17544
+	TST	R5
+	BNE	Z17716
+Z17714:	RETURN
+;
+Z17716:	CALL	Z05500		;                       
+	JMP	Z05610		;                                 
+Z17726:	MOV	#000003, R4
+	CALL	Z17544
+	TST	R5
+	BNE	Z17744		; R5    0 =>          
+	RETURN	
+;
+Z17744:	CALL	Z05500		;                       
+Z17750:	JMP	Z05652		;                                  
+;
+	.=020000
+;             :       5-                           R4
+Z20000::
+	MOV	#000060, R0
+Z20004:	SUB	#023420, R4	; 10000.
+	BMI	Z20016
+	INC     R0
+	BR      Z20004
+Z20016:	ADD	#023420, R4
+	CALL	TTYOUT		;                R0         
+	MOV	#000060, R0
+Z20030:	SUB	#001750, R4	; 1000.
+	BMI	Z20042
+	INC     R0
+	BR      Z20030
+Z20042:	ADD	#001750, R4	;                   
+	CALL	TTYOUT		;                R0         
+;     :         3-              R4
+Z20050:	MOV	#000060, R0
+Z20054:	SUB	#000144, R4	; 100.
+	BMI	Z20066
+	INC	R0
+	BR	Z20054
+Z20066:	ADD	#000144, R4	;                   
+	CALL	TTYOUT		;                R0         
+;     :                          R4
+Z20074:	MOV	#000060, R0
+Z20100:	SUB	#000012, R4
+	BMI	Z20112
+	INC	R0
+	BR	Z20100
+Z20112:	ADD	#000012, R4	;                      
+	CALL	TTYOUT		;                R0         
+	MOV	#000060, R0
+	ADD	R4, R0		;                       
+	CALL	TTYOUT		;                R0         
+Z20130:	RETURN
+;
+GAMES2:	.BYTE	33,131,66,67,0	;                         
+	.EVEN
+SCOREP:	.BYTE	33,131,66,53,0	; Esc Y <   >,<   > --                     
+	.EVEN
+;
+;             :                        
+LIVESP:	MOV	#GAMES2, R1	;                         
+	CALL	PRINT
+	MOV	Z01756, R4	;                       
+	JMP	Z20050		;         3-             
+;             :                        --                         
+Z20172:
+Z20236:
+	MOV	#SCOREP, R1
+	CALL	PRINT
+	MOV	Z01776, R4	;                                  
+	JMP	Z20000		;         5-              R4
+;                               1,             00000
+Z20302:	TST	Z01776		;                         ?
+Z20306:	BEQ	Z20314		;    =>        
+Z20310:	DEC	Z01776		;                   1
+Z20314:	RETURN	
+;
+Z20316:	CLR	Z01702		;                             
+	MOV	#000232, R0	; ???
+;	EMT	000016		;           -        
+Z20330:	RETURN	
+;              ???
+Z20332:	MOV     #000100, R4
+Z20336:	MOV     #000100, R3
+Z20342:	CALL    Z17200
+	SOB     R3, Z20342
+	ADD     #000200, R4
+	CMP     R4, #001000
+	BMI     Z20336
+Z20362:	BR      Z20310
+;
+;             : ???
+Z20364:	CALL	Z17000
+	CLR	Z11302		;                                   
+	RETURN	
+;              ??? R2 =              , R3 =                         
+Z20376:	TST	Z01736		;           ?
+	BEQ	Z20422		;    =>                 ,          5           
+	SUB	#400., R2	;       5             
+	CALL	Z05500		;                       
+	ADD	#400., R2	;      5             
+	BR	Z20426
+Z20422:	CALL	Z05500		;                       
+Z20426:	RETURN	
+;
+Z20430:	CALL	Z17276		;     
+	MOV	#000012, R2	; 10.    
+	MOV	R3, R5
+Z20442:	RETURN	
+;
+Z20444: ;                GAME OVER
+	MOV	#Z20616, R1	;             
+	CALL	PRINT
+Z20470:	JMP	Z20766
+
+;             : ???
+Z20540:	MOV	LEVEL, Z01770	;                ,                         
+	CLR	Z11312
+	RETURN
+;
+Z20554:	TST	Z11312
+	BNE	Z20566
+	JMP	Z15564
+Z20566:	JMP	Z15714
+
+Z20616: .BYTE	33,131,65,60	;                 
+	.ASCIZ	/GAME OVER/
+	.EVEN
+
+Z20630:	CMP	Z01776, Z11316
+	JMP	Z20444 ;STUB	BLE	Z20444
+
+Z20670:	.ASCII	/RECORD/
+	.EVEN
+
+;                               ?
+Z20706:	INC	Z01770		;                            
+	CMPB	Z01770, Z11300	;                                  ?
+	BMI	Z20730
+	MOVB	Z01770, Z11300	;           
+Z20730:	RETURN
+;
+Z20732:	NOP	;TST	177662
+Z20736:	JMP	Z11112
+
+Z20744:	TST	(R2)
+	BEQ	Z20760
+	MOV	#024000, R0
+Z20754:	SOB	R0, Z20754
+	BR	Z20736
+Z20760:	CLR	R0
+Z20762:	SOB	R0, Z20762
+Z20764:	RETURN	
+Z20766:	MOV	#Z21162, R2
+	CALL	Z20732
+	NOP	
+Z21000:	RETURN	
+
+Z21162:	;                    ?                
+	.WORD	000222,000720,000222,000534,000222,000164,000222,000720
+	.WORD	000172,000652,000202,000203,000202,000611,000222,000164
+	.WORD	000222,000534,000232,000156,000222,000720,000000
+
+;                     (0,0)                 
+Z21264:	CLR	R1
+	CLR	R2
+;	EMT	000024		;                     (0,0)
+	MOV	#043200, R0	;      ,        26.       
+Z21276:	CLR	(R0)+		;           8         
+	CMP	R0, #075000	;        ,        232.       
+	BMI	Z21276		;            
+Z21306:	RETURN
+;
+;                                          (       4)
+;                                          
+Z21310:	MOV	#001000, SP	;                    
+	NOP	
+	NOP	
+	NOP	
+	MOV	#000040, R1	;           000040
+	MOV	#000120, R2	; 80.     , 160.     
+Z21332:	CLR	(R1)+		;                
+	SOB	R2, Z21332	;            
+	CALL	Z22720
+Z21342:	BR	Z21350
+;
+Z21350:	TRAP	000000		;             
+	.WORD	010000, 000006	; 
+	MOV	#021630, 000274
+Z21364:	JMP	Z01064		;                                   
+
+
+Z21636:	JMP	Z22046
+
+;                               --                                            
+Z21642:	.TTINR			;                     ?
+	BCC	Z21642		;    =>                                    
+	.TTYIN			;               
+	BR	Z21654
+Z21650:	.TTINR
+Z21654:	SUB	#000060, R0
+Z21660:	BMI	Z21676
+
+Z21676:	RETURN	
+
+;                       TRAP (       34) --                                   
+Z21730:	MOV	R5, -(SP)
+	MOV	R0, -(SP)
+	MOV	000004(SP), R5	;             CPC
+	MOV	-(R5), R0	;                            TRAP
+	MOVB	R0, R0		;     TRAP = 0 ?
+	BEQ	Z21760		;    =>          
+	CALL	102234		;TODO       EMT 16 -                           R0
+Z21752:	MOV	(SP)+, R0
+	MOV	(SP)+, R5
+Z21756:	RTI			;                      
+; TRAP 000000
+	Z21760:	MOV	R1, -(SP)
+	MOV	R2, -(SP)
+	TST	(R5)+		;                        
+	MOV	(R5)+, R1	;                      
+	MOV	(R5)+, R2	;              ,                   
+	MOV	R5, 000010(SP)	;                                             
+	CALL	107050		;TODO EMT 20 -                      
+	MOV	(SP)+, R2
+	MOV	(SP)+, R1
+Z22006:	BR	Z21752		;                     TRAP
+;                                 
+Z22010:	MOV	R5, -(SP)
+	MOV	R1, -(SP)
+	MOV	R2, -(SP)
+	MOV	000006(SP), R5
+	MOVB	(R5)+, R1
+	MOVB	(R5)+, R2
+	MOV	R5, 000006(SP)
+	CALL	107272		;TODO EMT 24 -                                 
+	MOV	(SP)+, R2
+	MOV	(SP)+, R1
+	MOV	(SP)+, R5
+Z22044:	RTI			;                      
+; ???    -                
+Z22046:	TST	@#177562	;                          
+	TST	Z01754
+Z22056:	BNE	Z22064
+Z22060:	JMP	Z21642		;                                                           
+Z22064:	JMP	Z22752
+;
+	.=022070
+; ???        --                
+Z22070::
+	.BLKW	276		;TODO:         ,                     ;           21.*10.     
+Z22072	= Z22070 + 2
+
+Z22664:	BR	Z23032
+
+Z22714:	JMP	Z20630		;                   0
+
+Z22720:	NOP;	COMB	@#000053
+	NOP;	COM	@#000220
+	NOP;	MOV	#021310, 000004	;                     4
+	NOP;	CALL	100206		;TODO ???
+	NOP;	MOV	#177777, 177714	;TODO                         
+Z22750:	RETURN	
+;
+Z22752:	NOP;STUB
+	NOP;STUB
+
+Z22764:	JMP	Z21650		;                         
+;
+Z22770:	TST	Z01754
+	BNE	Z23004
+	MOV	177562, R0	;TODO
+Z23002:	RETURN	
+Z23004: NOP;STUB	MOV	177714, R0
+Z23010:	RETURN
+
+Z23032:	TST	Z01756		;                   = 0 ?
+Z23036:	BEQ	Z22714		;    =>          
+	RETURN	;STUB
+
+Z23052:	CLR	Z01736
+	CMPB	(R1), #000006	;       ?
+	BEQ	Z23066
+	CLRB	(R1)
+Z23066:	RETURN	
+
+Z23150:	MOV	#000045, R5
+	CALL	Z23224
+	CMP	R3, #000003	; R3 >= 3 ?
+	BPL	Z23176
+Z23166:	MOV	R4, R3
+	MOV	#000001, R5
+Z23174:	RETURN	
+;
+Z23176:	CLR	R5
+Z23200:	RETURN	
+Z23202:	MOV	#000045, R5
+	CALL	Z23224
+	CMP	R3, #000003
+	BMI	Z23176
+	BR	Z23166
+Z23222:	.WORD	0
+Z23224:	MOV	Z23222, R3
+	MOV	#000011, R2
+Z23234:	ASL	R3
+	SOB	R2, Z23234
+	MOV	#000005, R2
+Z23244:	SUB	Z23222, R3
+	SOB	R2, Z23244
+	MOV	#000017, R2
+	XOR	R2, R3
+	MOV	R3, Z23222
+	BIC	#100000, R3
+	CMP	R3, R5
+	BLE	Z23312
+	ASL	R5
+Z23276:	CMP	R3, R5
+	BLE	Z23306
+	ASR	R3
+	BR	Z23276
+Z23306:	ASR	R5
+	SUB	R5, R3
+Z23312:	RETURN	
+
+;                        ,                                    001720
+	.=024000
+Z24000::
+	.BLKW	40	;TODO:                           
+
+	.END	START

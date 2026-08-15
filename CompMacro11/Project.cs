@@ -10,6 +10,7 @@ namespace CompMacro11
         public string TargetPlatform = "UKNC";
         public int ScreenMode = 1;
         public bool OptimizeLabels = true;
+        public bool GameMode = false;       // false = ЦП, true = Game (ЦП+ПП, 8 цветов)
     }
 
     public class McProject
@@ -28,6 +29,12 @@ namespace CompMacro11
         public string ProjectPath;
         public string ProjectDir { get { return ProjectPath != null ? Path.GetDirectoryName(ProjectPath) : null; } }
         public bool IsModified = false;
+
+        // Файл спрайтов проекта: <папка проекта>\sprites\sprites.spr
+        public string SpritesFile
+        {
+            get { return ProjectDir != null ? Path.Combine(ProjectDir, "sprites", "sprites.spr") : null; }
+        }
 
         public static McProject CreateNew(string name, string folder)
         {
@@ -65,7 +72,8 @@ namespace CompMacro11
             sb.AppendLine("  \"Settings\": {");
             sb.AppendLine("    \"TargetPlatform\": \"" + Escape(Settings.TargetPlatform) + "\",");
             sb.AppendLine("    \"ScreenMode\": " + Settings.ScreenMode + ",");
-            sb.AppendLine("    \"OptimizeLabels\": " + (Settings.OptimizeLabels ? "true" : "false"));
+            sb.AppendLine("    \"OptimizeLabels\": " + (Settings.OptimizeLabels ? "true" : "false") + ",");
+            sb.AppendLine("    \"GameMode\": " + (Settings.GameMode ? "true" : "false"));
             sb.AppendLine("  },");
             sb.Append("  \"Files\": [");
             for (int i = 0; i < Files.Count; i++)
@@ -84,11 +92,18 @@ namespace CompMacro11
         {
             // newPath — это путь к новому .pkc файлу
             // Копируем всю папку проекта в новое место
-            string srcDir = ProjectDir;
-            string newDir = Path.GetDirectoryName(newPath);
+            string srcDir = Path.GetFullPath(ProjectDir);
+            string newDir = Path.GetFullPath(Path.GetDirectoryName(newPath));
             string newName = Path.GetFileNameWithoutExtension(newPath);
+            string oldPkcName = Path.GetFileName(ProjectPath);
 
-            // Создаём новую папку если нужно
+            // Копирование папки внутрь самой себя ушло бы в бесконечную рекурсию
+            if (newDir.Equals(srcDir, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Копия сохраняется в ту же папку, что и оригинал.");
+            if (newDir.StartsWith(srcDir + Path.DirectorySeparatorChar,
+                                  StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Нельзя сохранить копию внутрь папки исходного проекта.");
+
             Directory.CreateDirectory(newDir);
 
             // Копируем все файлы из исходной папки
@@ -98,6 +113,13 @@ namespace CompMacro11
                 string dstFile = Path.Combine(newDir, relative);
                 Directory.CreateDirectory(Path.GetDirectoryName(dstFile));
                 File.Copy(srcFile, dstFile, overwrite: true);
+            }
+
+            // Старый .pkc в копии не нужен — проект будет называться иначе
+            string strayPkc = Path.Combine(newDir, oldPkcName);
+            if (!strayPkc.Equals(newPath, StringComparison.OrdinalIgnoreCase) && File.Exists(strayPkc))
+            {
+                try { File.Delete(strayPkc); } catch { }
             }
 
             // Обновляем Name и ProjectPath
@@ -121,6 +143,7 @@ namespace CompMacro11
             proj.Settings.TargetPlatform = ReadStr(text, "TargetPlatform");
             proj.Settings.ScreenMode = ReadInt(text, "ScreenMode", 1);
             proj.Settings.OptimizeLabels = ReadBool(text, "OptimizeLabels", true);
+            proj.Settings.GameMode = ReadBool(text, "GameMode", false);
             proj.Files = ReadList(text, "Files");
             proj.Sprites = ReadList(text, "Sprites");
             proj.IsModified = false;
