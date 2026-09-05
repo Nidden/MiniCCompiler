@@ -1188,6 +1188,25 @@ namespace CompMacro11
             E("        RTS\tPC");
             E("");
 
+            // ── RTPPUT — pp_put(x,y,id): вывод спрайта 16 пикселей в любую
+            //   позицию, командой 12. Артефактов по краям нет.
+            E("RTPPUT: MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\t4.(R5), PPSX");
+            E("        MOV\t6.(R5), PPSY");
+            E("        MOV\t8.(R5), R0");
+            E("        JSR\tPC, RTPUSZ");          // высота из таблицы
+            E("        MOV\t8.(R5), R0");
+            E("        JSR\tPC, RTPUAD");          // адрес в ОЗУ ПП
+            E("        ADD\t#6, R0");              // данные за заголовком
+            E("        MOV\tR0, PPSPTR");
+            E("        MOV\t#12, PPCMD2");
+            E("RTPUTW: TST\tPPCMD2");
+            E("        BNE\tRTPUTW");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+            E("");
+
             // ── RTPUSZ — по номеру выставить PPSW/PPSH из таблицы ──
             E("RTPUSZ: MOV\tR1, -(SP)");
             E("        ASR\tR0");
@@ -1300,6 +1319,8 @@ namespace CompMacro11
             E("        BEQ\tPPRLP");
             E("        CMP\tR0, #177777");
             E("        BEQ\tPPRDON");
+            E("        CMP\tR0, #12");
+            E("        BEQ\tPPRS3");
             E("        CMP\tR0, #11");
             E("        BEQ\tPPRSM");
             E("        CMP\tR0, #7");
@@ -1323,6 +1344,8 @@ namespace CompMacro11
             E("PPRSP:  JSR\tPC, PPSPR");
             E("        BR\tPPRACK");
             E("PPRSM:  JSR\tPC, PPSPM");
+            E("        BR\tPPRACK");
+            E("PPRS3:  JSR\tPC, PPS3");
             E("        BR\tPPRACK");
             E("PPRCL:  JSR\tPC, PPCLR0");
             E("        BR\tPPRACK");
@@ -1537,7 +1560,9 @@ namespace CompMacro11
             E("        ADD\t#PSBUF-., R0");
             E("        MOV\tPPSW8, R2");
             E("PPSP3:  MOV\t(R0)+, @#177012");     // план 0
-            E("        MOV\t(R0)+, @#177014");     // планы 1 и 2
+            E("        MOV\t(R0)+, R1");           // планы 1 и 2 из данных
+            E("        SWAB\tR1");                  // → аппаратный порядок
+            E("        MOV\tR1, @#177014");
             E("        INC\t@#177010");
             E("        SOB\tR2, PPSP3");
             E("        ADD\t#80., R5");            // следующая строка экрана
@@ -1546,6 +1571,157 @@ namespace CompMacro11
             E("        RTS\tPC");
             E("PPSW8:  .WORD\t0");                 // ширина спрайта в октетах
             E("PPSW2:  .WORD\t0");                 // слов в строке спрайта
+            E("");
+
+            // ══════════════════════════════════════════════════════════
+            //  PPS3 — вывод 8-цветного спрайта шириной 16 пикселей в ЛЮБУЮ
+            //  позицию. Отдельная процедура: старый путь не затрагивается.
+            //
+            //  Спрайт занимает 2 октета, после сдвига — 3. Цепочка сдвига
+            //  развёрнута ровно на эти 3 октета (9 команд вместо 48), а
+            //  адрес буфера лежит в регистре — значит цепочка не зависит
+            //  от того, по какому адресу загружен резидент.
+            //
+            //  Крайние октеты пишутся под маской, средний целиком.
+            //  Вход: PPSX, PPSY, PPSH, PPSPTR (байтовый адрес данных в ОЗУ ПП).
+            // ══════════════════════════════════════════════════════════
+            E("PPS3:   BR\tPPS3G");
+            E("PPS3Q:  RTS\tPC");                  // выход рядом: ветвление далеко не достаёт
+            E("PPS3G:  MOV\t#<PPSPTR/2>, @#177010");
+            E("        MOV\t@#177014, R4");         // данные спрайта
+            E("        MOV\t#<PPSH/2>, @#177010");
+            E("        MOV\t@#177014, R3");         // высота
+            E("        BEQ\tPPS3Q");
+            // ── отсечение по вертикали ──
+            //   Таблица строк рассчитана на 264 строки. Спрайт за краем
+            //   экрана брал бы адрес из-за её конца, и запись уходила бы
+            //   по случайному месту. Снизу высота обрезается, целиком
+            //   ушедший за экран не рисуется вовсе.
+            E("        MOV\t#<PPSY/2>, @#177010");
+            E("        MOV\t@#177014, R0");         // y
+            E("        BLT\tPPS3Q");               // выше экрана — не рисуем
+            E("        CMP\tR0, #264.");
+            E("        BGE\tPPS3Q");               // ниже экрана — не рисуем
+            E("        MOV\tR0, R1");
+            E("        ADD\tR3, R1");
+            E("        CMP\tR1, #264.");
+            E("        BLE\tPPS3C");
+            E("        MOV\t#264., R3");           // низ за экраном — обрезать
+            E("        SUB\tR0, R3");
+            E("PPS3C:  MOV\tR3, PS3H");
+            E("        MOV\tR0, R1");              // R1 = y для таблицы строк
+            E("        MOV\t#<DSPST/2>, R2");
+            E("        ADD\tR1, R2");
+            E("        MOV\tR2, @#177010");
+            E("        MOV\t@#177014, R5");         // адрес строки y
+            E("        MOV\t#<PPSX/2>, @#177010");
+            E("        MOV\t@#177014, R0");
+            E("        MOV\tR0, R1");
+            E("        BIC\t#177770, R1");          // s = x & 7
+            E("        ASR\tR0");
+            E("        ASR\tR0");
+            E("        ASR\tR0");
+            E("        ADD\tR0, R5");               // + x/8
+            E("        MOV\tR1, PS3S");
+            // маски крайних октетов
+            E("        MOV\t#377, R2");
+            E("        MOV\tR1, R0");
+            E("        BEQ\tPPS3M2");
+            E("PPS3M1: ASL\tR2");
+            E("        DEC\tR0");
+            E("        BNE\tPPS3M1");
+            E("PPS3M2: BIC\t#177400, R2");
+            E("        MOV\tR2, PS3ML");            // левый октет: биты s..7
+            E("        MOV\tR2, R0");
+            E("        SWAB\tR0");
+            E("        BIS\tR2, R0");
+            E("        MOV\tR0, PS3ML2");
+            E("        COM\tR2");
+            E("        BIC\t#177400, R2");
+            E("        MOV\tR2, PS3MR");            // правый октет: биты 0..s-1
+            E("        MOV\tR2, R0");
+            E("        SWAB\tR0");
+            E("        BIS\tR2, R0");
+            E("        MOV\tR0, PS3MR2");
+            // ── строка ──
+            E("PPS3L:  MOV\tPC, R0");
+            E("        ADD\t#PS3BUF-., R0");        // R0 = буфер
+            E("        MOV\t(R4)+, (R0)+");         // октет 0: план0
+            E("        MOV\t(R4)+, (R0)+");         // октет 0: план1|план2 из данных
+            E("        MOV\t(R4)+, (R0)+");         // октет 1: план0
+            E("        MOV\t(R4)+, (R0)+");         // октет 1: план1|план2 из данных
+            E("        CLR\t(R0)+");                // октет 2 — под перенос
+            E("        CLR\t(R0)");
+            E("        MOV\tPC, R0");
+            E("        ADD\t#PS3BUF-., R0");
+            E("        MOV\tPS3S, R1");
+            E("        BEQ\tPPS3W");                // кратно 8 — сдвигать нечего
+            // цепочка сдвига: три плоскости по три октета, флаг переноса
+            // несёт бит из байта в байт, вставить сюда ничего нельзя
+            E("PPS3S1: CLC");
+            E("        ROLB\t0.(R0)");
+            E("        ROLB\t4.(R0)");
+            E("        ROLB\t8.(R0)");
+            E("        CLC");
+            E("        ROLB\t2.(R0)");
+            E("        ROLB\t6.(R0)");
+            E("        ROLB\t10.(R0)");
+            E("        CLC");
+            E("        ROLB\t3.(R0)");
+            E("        ROLB\t7.(R0)");
+            E("        ROLB\t11.(R0)");
+            E("        DEC\tR1");
+            E("        BNE\tPPS3S1");
+            // ── вывод трёх октетов ──
+            E("PPS3W:  MOV\tPS3ML, PS3MA");
+            E("        MOV\tPS3ML2, PS3MB");
+            E("        JSR\tPC, PPS3R1");           // левый под маской
+            E("        MOV\tR5, @#177010");         // средний целиком
+            E("        MOV\t(R0)+, @#177012");
+            E("        MOV\t(R0)+, @#177014");      // уже развёрнуто в PPS3L — второй раз не трогаем
+            E("        INC\tR5");
+            E("        MOV\tPS3MR, PS3MA");
+            E("        MOV\tPS3MR2, PS3MB");
+            E("        JSR\tPC, PPS3R1");           // правый под маской
+            E("        SUB\t#3, R5");               // вернуться к началу строки (3 октета)
+            E("        ADD\t#80., R5");             // и на строку ниже
+            E("        DEC\tPS3H");
+            E("        BNE\tPPS3L");
+            E("PPS3R:  RTS\tPC");
+            E("");
+            // ── PPS3R1 — записать октет под маской PS3MA/PS3MB ──
+            E("PPS3R1: MOV\tR5, @#177010");
+            E("        MOV\t@#177012, PS3T1");
+            E("        MOV\t@#177014, PS3T2");
+            E("        MOV\tPS3MA, R1");
+            E("        BIC\tR1, PS3T1");
+            E("        COM\tR1");
+            E("        MOV\t(R0)+, PS3T3");
+            E("        BIC\tR1, PS3T3");
+            E("        BIS\tPS3T3, PS3T1");
+            E("        MOV\tPS3MB, R1");
+            E("        BIC\tR1, PS3T2");
+            E("        COM\tR1");
+            E("        MOV\t(R0)+, PS3T3");
+            E("        BIC\tR1, PS3T3");
+            E("        BIS\tPS3T3, PS3T2");
+            E("        MOV\tR5, @#177010");
+            E("        MOV\tPS3T1, @#177012");
+            E("        MOV\tPS3T2, @#177014");
+            E("        INC\tR5");
+            E("        RTS\tPC");
+            E("PS3BUF: .BLKW\t6.");                 // три октета по два слова
+            E("PS3S:   .WORD\t0");
+            E("PS3H:   .WORD\t0");
+            E("PS3ML:  .WORD\t0");
+            E("PS3ML2: .WORD\t0");
+            E("PS3MR:  .WORD\t0");
+            E("PS3MR2: .WORD\t0");
+            E("PS3MA:  .WORD\t0");
+            E("PS3MB:  .WORD\t0");
+            E("PS3T1:  .WORD\t0");
+            E("PS3T2:  .WORD\t0");
+            E("PS3T3:  .WORD\t0");
             E("");
 
             // ── PPSPX — вывод спрайта с ПРОИЗВОЛЬНЫМ x (перенос буферного пути RTSPS с ЦП) ──
@@ -1616,6 +1792,7 @@ namespace CompMacro11
             E("        INC\tR4");
             E("        MOV\tR4, @#177010");
             E("        MOV\t@#177014, (R0)+");
+            E("        SWAB\t-2.(R0)");              // → аппаратный порядок
             E("        INC\tR4");
             E("        DEC\tR1");
             E("        BNE\tPSXC1");
@@ -1623,7 +1800,26 @@ namespace CompMacro11
             E("        CLR\t(R0)");
             E("        MOV\t4.(SP), R1");
             E("        JSR\tPC, PSXSHF");         // сдвинуть строку на x&7 пикселей
-            E("        JSR\tPC, PSXOUT");         // выложить строку в видеопамять
+            // вывод строки — инлайном: лишний уровень вызова в резиденте
+            // ПП ломает возврат (стека хватает на два), поэтому PSXOUT
+            // раскрыт здесь. Внутри остаётся один JSR — на PSXRMW.
+            E("        MOV\tPC, R0");
+            E("        ADD\t#PSBUF-., R0");
+            E("        MOV\tPSMKL0, PSMKA");
+            E("        MOV\tPSMKL2, PSMKB");
+            E("        JSR\tPC, PSXRMW");
+            E("        MOV\tR2, R1");
+            E("        DEC\tR1");
+            E("        BEQ\tPSXO2");
+            E("PSXO1:  MOV\tR5, @#177010");
+            E("        MOV\t(R0)+, @#177012");
+            E("        MOV\t(R0)+, @#177014");
+            E("        INC\tR5");
+            E("        DEC\tR1");
+            E("        BNE\tPSXO1");
+            E("PSXO2:  MOV\tPSMKR0, PSMKA");
+            E("        MOV\tPSMKR2, PSMKB");
+            E("        JSR\tPC, PSXRMW");
             E("        ADD\t2.(SP), R5");
             E("        DEC\t0.(SP)");
             E("        BEQ\tPSXL3");
@@ -1721,7 +1917,26 @@ namespace CompMacro11
             E("        CLR\t(R0)");
             E("        MOV\tPPSMS, R1");
             E("        JSR\tPC, PSXSHF");
-            E("        JSR\tPC, PSXOUT");
+            // вывод строки — инлайном: лишний уровень вызова в резиденте
+            // ПП ломает возврат (стека хватает на два), поэтому PSXOUT
+            // раскрыт здесь. Внутри остаётся один JSR — на PSXRMW.
+            E("        MOV\tPC, R0");
+            E("        ADD\t#PSBUF-., R0");
+            E("        MOV\tPSMKL0, PSMKA");
+            E("        MOV\tPSMKL2, PSMKB");
+            E("        JSR\tPC, PSXRMW");
+            E("        MOV\tR2, R1");
+            E("        DEC\tR1");
+            E("        BEQ\tPSMO2");
+            E("PSMO1:  MOV\tR5, @#177010");
+            E("        MOV\t(R0)+, @#177012");
+            E("        MOV\t(R0)+, @#177014");
+            E("        INC\tR5");
+            E("        DEC\tR1");
+            E("        BNE\tPSMO1");
+            E("PSMO2:  MOV\tPSMKR0, PSMKA");
+            E("        MOV\tPSMKR2, PSMKB");
+            E("        JSR\tPC, PSXRMW");
             E("        ADD\tPPSMD, R5");
             E("        DEC\tPPSMH");
             E("        BNE\tPPSML1");
@@ -1733,8 +1948,7 @@ namespace CompMacro11
             E("");
 
             // ── PSXSHF — сдвинуть строку в PSBUF на R1 пикселей вправо ──
-            //   Три ROLB-цепочки: план0, план1, план2. Вынесено из PPSPX,
-            //   чтобы тем же кодом пользовался вывод из ОЗУ ПП.
+            //   Три ROLB-цепочки: план0, план1, план2.
             E("PSXSHF: TST\tR1");
             E("        BEQ\tPSXSH9");
             E("PSXSH1: CLC");
@@ -1791,29 +2005,6 @@ namespace CompMacro11
             E("        DEC\tR1");
             E("        BNE\tPSXSH1");
             E("PSXSH9: RTS\tPC");
-            E("");
-
-            // ── PSXOUT — выложить строку из PSBUF в видеопамять ──
-            //   Вход: R2 — октетов, R5 — адрес первого октета строки.
-            //   Крайние октеты пишутся под маской, средние целиком.
-            E("PSXOUT: MOV\tPC, R0");
-            E("        ADD\t#PSBUF-., R0");
-            E("        MOV\tPSMKL0, PSMKA");
-            E("        MOV\tPSMKL2, PSMKB");
-            E("        JSR\tPC, PSXRMW");
-            E("        MOV\tR2, R1");
-            E("        DEC\tR1");
-            E("        BEQ\tPSXO2");
-            E("PSXO1:  MOV\tR5, @#177010");
-            E("        MOV\t(R0)+, @#177012");
-            E("        MOV\t(R0)+, @#177014");
-            E("        INC\tR5");
-            E("        DEC\tR1");
-            E("        BNE\tPSXO1");
-            E("PSXO2:  MOV\tPSMKR0, PSMKA");
-            E("        MOV\tPSMKR2, PSMKB");
-            E("        JSR\tPC, PSXRMW");
-            E("        RTS\tPC");
             E("");
 
             // ── PSXRMW — записать октет из буфера под маской PSMKA/PSMKB ──
@@ -1912,11 +2103,16 @@ namespace CompMacro11
             E("        SUB\tR2, R0");
             E("        MOV\tR0, -(SP)");           // шаг строки на стеке
             E("PPBL1:  MOV\tR2, -(SP)");           // счётчик октетов
+            // Адрес переустанавливается перед каждым обращением: читать или
+            // писать два слова после одной установки — допущение, которое
+            // здесь ничем не подтверждено, а ошибка дала бы порчу планов 1 и 2.
             E("PPBL2:  MOV\tR4, @#177010");
             E("        MOV\t@#177012, R0");        // план0 src
+            E("        MOV\tR4, @#177010");
             E("        MOV\t@#177014, R1");        // планы1&2 src
             E("        MOV\tR5, @#177010");
             E("        MOV\tR0, @#177012");        // план0 dst
+            E("        MOV\tR5, @#177010");
             E("        MOV\tR1, @#177014");        // планы1&2 dst
             E("        INC\tR4");
             E("        INC\tR5");

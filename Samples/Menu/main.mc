@@ -8,13 +8,16 @@ void invOn()  { print_char(27); print_char(163); }
 void invOff() { print_char(27); print_char(191); print_char(163); }
 
 int sel;
+int ItemN=5;
 
 // текст пункта по номеру
 void itemText(int i) {
     if (i == 0) print_str("  Графика     ");
     if (i == 1) print_str("  Игры        ");
-    if (i == 2) print_str("  Настройки   ");
-    if (i == 3) print_str("  Выход       ");
+    if (i == 2) print_str("  Настройки   ");    
+    if (i == 3) print_str("  Варианты    ");
+    if (i == 4) print_str("  Выход       ");
+    
 }
 
 // перерисовать ОДИН пункт: highlighted=1 — с инверсией
@@ -33,7 +36,7 @@ void drawAll() {
     gotoxy(2, 0);
     print_str("=== МЕНЮ УКНЦ ===");
     i = 0;
-    while (i < 4) {
+    while (i < ItemN) {
         drawItem(i, i == sel);
         i = i + 1;
     }
@@ -56,7 +59,7 @@ int main() {
             while (k2 == 0) k2 = getkey();
             old = sel;
             if (k2 == 65) { if (sel > 0) sel = sel - 1; }   // вверх
-            if (k2 == 66) { if (sel < 3) sel = sel + 1; }   // вниз
+            if (k2 == 66) { if (sel < (ItemN-1)) sel = sel + 1; }   // вниз
             if (old != sel) {
                 drawItem(old, 0);       // снять выделение со старого
                 drawItem(sel, 1);       // поставить на новый

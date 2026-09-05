@@ -85,7 +85,11 @@ namespace CompMacro11
                             if ((c & 4) != 0) plane2 |= (1 << b);
                         }
                         w.Add(plane0);
-                        w.Add(plane1 | (plane2 << 8));
+                        // Порядок байтов подтверждён тестом на реальной машине
+                        // (palette_test.mc): 177014 отдаёт МЛАДШИЙ байт под план2
+                        // (красный), СТАРШИЙ — под план1 (зелёный). Раньше здесь
+                        // было наоборот — красный и зелёный менялись местами.
+                        w.Add(plane2 | (plane1 << 8));
                     }
             }
             else
@@ -254,15 +258,6 @@ namespace CompMacro11
         System.Windows.Forms.Timer _autoSaveTimer;
 
         public List<Sprite> GetSprites() => new List<Sprite>(_sprites);
-
-        // Принудительно записать спрайты на диск, не дожидаясь таймера.
-        // Нужно при сохранении проекта: иначе правки последних двух секунд
-        // не попадут в файл проекта.
-        public void SaveNow()
-        {
-            _autoSaveTimer.Stop();
-            AutoSave();
-        }
 
         public SpriteEditor(Action<string> insertCode)
         {
@@ -1608,6 +1603,15 @@ namespace CompMacro11
         {
             _autoSaveTimer.Stop();
             _autoSaveTimer.Start();
+        }
+
+        // Принудительное сохранение без ожидания таймера — вызывается
+        // снаружи (Form1.cs), например перед закрытием проекта или сменой
+        // файла спрайтов, чтобы не потерять несохранённые изменения.
+        public void SaveNow()
+        {
+            _autoSaveTimer.Stop();
+            AutoSave();
         }
 
         void AutoSave()

@@ -41,7 +41,7 @@ namespace CompMacro11
             new System.Collections.Generic.HashSet<string> {
                 "ppu_init","pp_init","pp_point","pp_line","pp_sprite","pp_stop",
                 "pp_spr","pp_blit","vpoke","pp_peek","vload","pp_vspr","pp_spr_q","pp_flush","pp_qhead","pp_qtail",
-                "pp_upload","pp_sprm","pp_upaddr"
+                "pp_upload","pp_sprm","pp_upaddr","pp_put"
             };
 
         private StringBuilder _out;
@@ -113,7 +113,7 @@ namespace CompMacro11
             "ppu_init", "pp_init", "pp_point", "pp_line", "pp_sprite", "pp_stop",
             "spr", "pp_spr", "pp_blit", "vpoke", "pp_peek", "vload", "pp_vspr",
             "pp_spr_q", "pp_flush", "pp_qhead", "pp_qtail",
-            "pp_upload", "pp_sprm", "pp_upaddr",
+            "pp_upload", "pp_sprm", "pp_upaddr", "pp_put",
             "fload", "fsave", "print_buf", "str_to_buf",
             // ── Функции для файлового менеджера (Norton Commander) ──
             "fdelete", "frename", "mkdir", "getcwd", "chdir", "file_info"
@@ -2931,6 +2931,19 @@ namespace CompMacro11
                     EI("MOV", "R0, -(SP)");
                     EI("JSR", "PC, RTPUAT");
                     EI("ADD", "#2., SP");
+                    break;
+
+                case "pp_put":
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: pp_put(x,y,id) требует 3 аргумента");
+                    EC("pp_put(x,y,id): спрайт 16 пикселей в любую позицию, без артефактов");
+                    for (int i = c.Args.Count - 1; i >= 0; i--)
+                    {
+                        GenExpr(c.Args[i]);
+                        EI("MOV", "R0, -(SP)");
+                    }
+                    EI("JSR", "PC, RTPPUT");
+                    EI("ADD", "#6., SP");
                     break;
 
                 case "pp_sprm":

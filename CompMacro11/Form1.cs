@@ -197,22 +197,64 @@ namespace CompMacro11
             btnExample.Click += (_, __) => ShowExamplesMenu(btnExample);
 
 
-            var btnRun = MakeBtn("▶ Эмулятор", 105, Color.FromArgb(30, 90, 50), 456);
+            var btnRun = MakeBtn("▶ Эмулятор", 105, Color.FromArgb(30, 90, 50), 353);
             btnRun.Click += (_, __) => RunInEmulator();
 
             // Чекбокс оптимизации больше не показывается в баре —
             // его состояние хранится здесь, а управление перенесено
             // в меню «Настройки». Создаём без добавления в bar.Controls.
-            _chkOptimize = new CheckBox { Checked = true, Visible = false };
+            // Оптимизация рантайма (вырезание неиспользуемых блоков) снова
+            // управляется вручную: она режет .mac по меткам, и внутренние
+            // метки буферного пути вывода могут попасть под нож.
+            _chkOptimize = new CheckBox
+            {
+                Text = "Оптим.",
+                Checked = true,
+                AutoSize = true,
+                Location = new Point(1006, 16),
+                ForeColor = Color.FromArgb(190, 190, 190),
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 9f),
+                Cursor = Cursors.Hand
+            };
+            _chkOptimize.CheckedChanged += (_, __) =>
+                SetStatus(_chkOptimize.Checked
+                    ? "✓  Оптимизация рантайма включена"
+                    : "○  Оптимизация рантайма выключена — .mac собирается целиком", false);
 
-            var btnSettings = MakeBtn("⚙ Настройки ▾", 120, Color.FromArgb(70, 60, 40), 333);
-            btnSettings.Click += (_, __) => ShowSettingsMenu(btnSettings);
+            // Режим компиляции виден всегда: переключатель стоит прямо в
+            // панели, на месте прежней кнопки «Настройки». Само меню убрано,
+            // а оптимизация рантайма остаётся включённой (_chkOptimize).
+            _modeLabel = new Label
+            {
+                Text = "Режим:",
+                Location = new Point(830, 16),
+                AutoSize = true,
+                ForeColor = Color.FromArgb(190, 190, 190),
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 9f)
+            };
+            _modeSwitch = new ModeSwitch { Location = new Point(886, 12) };
+            _modeSwitch.SetState(_gameMode);
+            _modeSwitch.Toggled += g =>
+            {
+                _gameMode = g;
+                if (_project != null && _project.Settings.GameMode != g)
+                {
+                    _project.Settings.GameMode = g;
+                    MarkProjectDirty();
+                }
+                UpdateTitle();
+                SetStatus(g
+                    ? "✓  Режим Game: 320x264, спрайты, ЦП+ПП (8 цветов)"
+                    : "✓  Режим ЦП: векторная графика, 4 цвета", false);
+            };
 
-            var btnHelp = MakeBtn("?", 32, Color.FromArgb(50, 80, 120), 569);
+            var btnHelp = MakeBtn("?", 32, Color.FromArgb(50, 80, 120), 466);
             btnHelp.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
             btnHelp.Click += (_, __) => ShowHelp();
 
-            var btnSprites = MakeBtn("🎨 Спрайты", 100, Color.FromArgb(60, 40, 80), 609);
+            var btnSprites = MakeBtn("🎨 Спрайты", 100, Color.FromArgb(60, 40, 80), 506);
             btnSprites.Click += (_, __) =>
             {
                 if (_spriteEditor == null || _spriteEditor.IsDisposed)
@@ -262,18 +304,18 @@ namespace CompMacro11
             };
             bar.SizeChanged += (_, __) =>
             {
-                _status.Width = bar.Width - 845;
-                _status.Location = new Point(840, 7);
+                _status.Width = bar.Width - 1085;
+                _status.Location = new Point(1080, 7);
             };
 
             // ── Меню Проект ───────────────────────────────────────
-            var btnDisk = MakeBtn("💾 Диск", 90, Color.FromArgb(50, 55, 75), 717);
+            var btnDisk = MakeBtn("💾 Диск", 90, Color.FromArgb(50, 55, 75), 614);
             btnDisk.Click += (_, __) =>
             {
                 using (var d = new DskDialog()) d.ShowDialog(this);
             };
 
-            var btnProject = MakeBtn("📁 Проект ▾", 110, Color.FromArgb(40, 70, 40), 811);
+            var btnProject = MakeBtn("📁 Проект ▾", 110, Color.FromArgb(40, 70, 40), 712);
             btnProject.Click += (_, __) =>
             {
                 var menu = new ContextMenuStrip();
@@ -309,7 +351,7 @@ namespace CompMacro11
                 menu.Show(btnProject, new System.Drawing.Point(0, btnProject.Height));
             };
 
-            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, btnSettings, btnRun, btnHelp, btnSprites, btnDisk, btnProject, _status });
+            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, _modeLabel, _modeSwitch, _chkOptimize, btnRun, btnHelp, btnSprites, btnDisk, btnProject, _status });
 
             // ── Заголовки ─────────────────────────────────────────
             var hdr = new Panel
@@ -1609,71 +1651,8 @@ namespace CompMacro11
         // ── Режим компиляции: false = ЦП (векторная графика, 4 цвета),
         //    true = Game (320x264, связка ЦП+ПП, спрайтовая графика, 8 цветов) ──
         private bool _gameMode = false;
-
-        // ── Меню «Настройки» ──────────────────────────────────────
-        private void ShowSettingsMenu(Control anchor)
-        {
-            var menu = new ContextMenuStrip();
-            menu.BackColor = Color.FromArgb(45, 45, 48);
-            menu.ForeColor = Color.White;
-
-            // Оптимизация рантайма (tree-shaking) — перенесена сюда из бара
-            var miOpt = new ToolStripMenuItem("Оптимизация рантайма")
-            {
-                CheckOnClick = true,
-                Checked = _chkOptimize != null && _chkOptimize.Checked,
-                ToolTipText = "Удалять неиспользуемые функции рантайма из .mac (tree-shaking)"
-            };
-            miOpt.CheckedChanged += (s2, e2) =>
-            {
-                if (_chkOptimize != null) _chkOptimize.Checked = miOpt.Checked;
-                SetStatus(miOpt.Checked ? "✓  Оптимизация включена" : "○  Оптимизация выключена", false);
-            };
-
-            // ── Режим компиляции: ЦП / Game — iOS-переключатель в меню ──
-            var modePanel = new Panel
-            {
-                Size = new Size(230, 34),
-                BackColor = Color.FromArgb(45, 45, 48)
-            };
-            var lblMode = new Label
-            {
-                Text = "Режим компиляции:",
-                Location = new Point(6, 9),
-                AutoSize = true,
-                ForeColor = Color.White,
-                BackColor = Color.Transparent,
-                Font = new Font("Segoe UI", 9f)
-            };
-            modePanel.Controls.Add(lblMode);
-            var sw = new ModeSwitch { Location = new Point(126, 4) };
-            sw.SetState(_gameMode);                 // показать текущий режим
-            sw.Toggled += g =>
-            {
-                _gameMode = g;
-                if (_project != null && _project.Settings.GameMode != g)
-                {
-                    _project.Settings.GameMode = g;
-                    MarkProjectDirty();
-                }
-                SetStatus(g
-                    ? "✓  Режим Game: 320x264, спрайты, ЦП+ПП (8 цветов)"
-                    : "✓  Режим ЦП: векторная графика, 4 цвета", false);
-            };
-            modePanel.Controls.Add(sw);
-            var host = new ToolStripControlHost(modePanel)
-            {
-                AutoSize = false,
-                Size = modePanel.Size,
-                Padding = Padding.Empty,
-                Margin = new Padding(0, 2, 0, 2)
-            };
-
-            menu.Items.Add(miOpt);
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(host);
-            menu.Show(anchor, new System.Drawing.Point(0, anchor.Height));
-        }
+        private ModeSwitch _modeSwitch = null;   // переключатель ЦП/Game в панели
+        private Label _modeLabel = null;
 
         // ── Галерея примеров ──────────────────────────────────────
         // Каждый пример: (категория, отображаемое имя, имя файла, краткое описание)
@@ -1914,6 +1893,7 @@ int main(void) {
         {
             if (_project == null) return;
             _gameMode = _project.Settings.GameMode;
+            if (_modeSwitch != null) _modeSwitch.SetState(_gameMode);
             SetStatus(_gameMode
                 ? "Режим Game: 320x264, спрайты, ЦП+ПП (8 цветов)"
                 : "Режим ЦП: векторная графика, 4 цвета", false);
