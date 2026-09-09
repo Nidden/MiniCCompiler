@@ -41,7 +41,7 @@ namespace CompMacro11
             new System.Collections.Generic.HashSet<string> {
                 "ppu_init","pp_init","pp_point","pp_line","pp_sprite","pp_stop",
                 "pp_spr","pp_blit","vpoke","pp_peek","vload","pp_vspr","pp_spr_q","pp_flush","pp_qhead","pp_qtail",
-                "pp_upload","pp_sprm","pp_upaddr","pp_put"
+                "pp_upload","pp_sprm","pp_upaddr","pp_put","pp_putf"
             };
 
         private StringBuilder _out;
@@ -113,7 +113,7 @@ namespace CompMacro11
             "ppu_init", "pp_init", "pp_point", "pp_line", "pp_sprite", "pp_stop",
             "spr", "pp_spr", "pp_blit", "vpoke", "pp_peek", "vload", "pp_vspr",
             "pp_spr_q", "pp_flush", "pp_qhead", "pp_qtail",
-            "pp_upload", "pp_sprm", "pp_upaddr", "pp_put",
+            "pp_upload", "pp_sprm", "pp_upaddr", "pp_put", "pp_putf",
             "fload", "fsave", "print_buf", "str_to_buf",
             // ── Функции для файлового менеджера (Norton Commander) ──
             "fdelete", "frename", "mkdir", "getcwd", "chdir", "file_info"
@@ -456,7 +456,15 @@ namespace CompMacro11
                 E("        .PSECT\tDATA, RW, D");
                 foreach (var g in prog.Globals)
                 {
-                    string glbl = ToAsm(g.Name);
+                    // Метка уже посчитана раньше, в _globals[g.Name].StaticLabel —
+                    // ТАМ разводятся совпадения (spriteTopA/spriteTopB/sprite_Back
+                    // после обрезки до 6 символов все дают "SPRITE"). Раньше здесь
+                    // метка считалась заново через голый ToAsm(g.Name), без учёта
+                    // уже найденных совпадений — три разных спрайта получали
+                    // одну и ту же метку в секции данных, и код ссылался не туда.
+                    string glbl = _globals.TryGetValue(g.Name, out var gsym) && gsym.StaticLabel != null
+                        ? gsym.StaticLabel
+                        : ToAsm(g.Name);
                     if (!g.Type.IsArray)
                     {
                         // Скалярная глобальная переменная
@@ -2943,6 +2951,19 @@ namespace CompMacro11
                         EI("MOV", "R0, -(SP)");
                     }
                     EI("JSR", "PC, RTPPUT");
+                    EI("ADD", "#6., SP");
+                    break;
+
+                case "pp_putf":
+                    if (c.Args.Count != 3)
+                        throw new Exception($"Строка {c.Line}: pp_putf(x,y,id) требует 3 аргумента");
+                    EC("pp_putf(x,y,id): то же, что pp_put, зеркально по горизонтали");
+                    for (int i = c.Args.Count - 1; i >= 0; i--)
+                    {
+                        GenExpr(c.Args[i]);
+                        EI("MOV", "R0, -(SP)");
+                    }
+                    EI("JSR", "PC, RTPPUTF");
                     EI("ADD", "#6., SP");
                     break;
 

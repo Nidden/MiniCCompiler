@@ -148,9 +148,11 @@ namespace CompMacro11
         private System.Windows.Forms.Timer _hlTimer;
         private System.Windows.Forms.Timer _scrollTimer;
         private SpriteEditor _spriteEditor;
+        private LevelEditor _levelEditor;
         private string _emulatorPath = "";   // путь к UKNCBTL.exe
         private McProject _project = null;   // текущий проект
         private string _projectSpritesPath = null;
+        private string _projectLevelsPath = null;
         // Пока true, изменения _src.Text не помечают проект изменённым
         // (используется при загрузке кода из проекта).
         private bool _suppressDirty = false;
@@ -211,7 +213,7 @@ namespace CompMacro11
                 Text = "Оптим.",
                 Checked = true,
                 AutoSize = true,
-                Location = new Point(1006, 16),
+                Location = new Point(1102, 16),
                 ForeColor = Color.FromArgb(190, 190, 190),
                 BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", 9f),
@@ -228,13 +230,13 @@ namespace CompMacro11
             _modeLabel = new Label
             {
                 Text = "Режим:",
-                Location = new Point(830, 16),
+                Location = new Point(926, 16),
                 AutoSize = true,
                 ForeColor = Color.FromArgb(190, 190, 190),
                 BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", 9f)
             };
-            _modeSwitch = new ModeSwitch { Location = new Point(886, 12) };
+            _modeSwitch = new ModeSwitch { Location = new Point(982, 12) };
             _modeSwitch.SetState(_gameMode);
             _modeSwitch.Toggled += g =>
             {
@@ -291,6 +293,22 @@ namespace CompMacro11
                     _spriteEditor.Show(this);
             };
 
+            var btnGames = MakeBtn("🎮 Игры ▾", 90, Color.FromArgb(40, 60, 80), 606);
+            btnGames.Click += (_, __) =>
+            {
+                var menu = new ContextMenuStrip();
+                menu.BackColor = Color.FromArgb(45, 45, 48);
+                menu.ForeColor = Color.White;
+
+                var miBattleCity = new ToolStripMenuItem("🏰 Battle City");
+                miBattleCity.Click += (s2, e2) => OpenLevelEditor();
+                menu.Items.Add(miBattleCity);
+                // сюда позже добавятся редакторы уровней других игр —
+                // тем же способом, каждая своим пунктом меню.
+
+                menu.Show(btnGames, new System.Drawing.Point(0, btnGames.Height));
+            };
+
             _status = new Label
             {
                 Text = "",
@@ -305,17 +323,17 @@ namespace CompMacro11
             bar.SizeChanged += (_, __) =>
             {
                 _status.Width = bar.Width - 1085;
-                _status.Location = new Point(1080, 7);
+                _status.Location = new Point(1176, 7);
             };
 
             // ── Меню Проект ───────────────────────────────────────
-            var btnDisk = MakeBtn("💾 Диск", 90, Color.FromArgb(50, 55, 75), 614);
+            var btnDisk = MakeBtn("💾 Диск", 90, Color.FromArgb(50, 55, 75), 710);
             btnDisk.Click += (_, __) =>
             {
                 using (var d = new DskDialog()) d.ShowDialog(this);
             };
 
-            var btnProject = MakeBtn("📁 Проект ▾", 110, Color.FromArgb(40, 70, 40), 712);
+            var btnProject = MakeBtn("📁 Проект ▾", 110, Color.FromArgb(40, 70, 40), 808);
             btnProject.Click += (_, __) =>
             {
                 var menu = new ContextMenuStrip();
@@ -351,7 +369,7 @@ namespace CompMacro11
                 menu.Show(btnProject, new System.Drawing.Point(0, btnProject.Height));
             };
 
-            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, _modeLabel, _modeSwitch, _chkOptimize, btnRun, btnHelp, btnSprites, btnDisk, btnProject, _status });
+            bar.Controls.AddRange(new Control[] { btnCompile, btnClear, btnExample, _modeLabel, _modeSwitch, _chkOptimize, btnRun, btnHelp, btnSprites, btnGames, btnDisk, btnProject, _status });
 
             // ── Заголовки ─────────────────────────────────────────
             var hdr = new Panel
@@ -503,8 +521,19 @@ namespace CompMacro11
             Controls.Add(hdr);
             Controls.Add(bar);
 
-            var lastCode = AppEnvironment.LastCode;
-            _src.Text = !string.IsNullOrEmpty(lastCode) ? lastCode : LoadSample();
+            var lastProject = AppEnvironment.LastProjectPath;
+            if (!string.IsNullOrEmpty(lastProject) && System.IO.File.Exists(lastProject))
+            {
+                // При старте открываем последний ПРОЕКТ целиком: код, путь к
+                // спрайтам для редактора и режим ЦП/Game — всё через тот же
+                // путь, что и обычное открытие проекта, ничего не дублируем.
+                Load += (_, __) => ProjectOpen(lastProject);
+            }
+            else
+            {
+                var lastCode = AppEnvironment.LastCode;
+                _src.Text = !string.IsNullOrEmpty(lastCode) ? lastCode : LoadSample();
+            }
             Highlight();
             UpdateStatusBar();
         }
@@ -567,8 +596,8 @@ namespace CompMacro11
             var dlg = new Form
             {
                 Text = "Справка — Mini-C для УКНЦ",
-                Size = new Size(860, 640),
-                MinimumSize = new Size(640, 440),
+                Size = new Size(980, 680),
+                MinimumSize = new Size(700, 460),
                 BackColor = Color.FromArgb(28, 28, 28),
                 ForeColor = Color.FromArgb(212, 212, 212),
                 Font = F_UI,
@@ -586,7 +615,7 @@ namespace CompMacro11
                 Font = new Font("Consolas", 10f),
                 BorderStyle = BorderStyle.None,
                 ReadOnly = true,
-                WordWrap = false,
+                WordWrap = true,
                 ScrollBars = RichTextBoxScrollBars.Vertical
             };
 
@@ -625,7 +654,7 @@ namespace CompMacro11
             var split = new SplitContainer
             {
                 Dock = DockStyle.Fill,
-                SplitterDistance = 220,
+                SplitterDistance = 170,
                 BackColor = Color.FromArgb(28, 28, 28),
                 SplitterWidth = 3
             };
@@ -1138,6 +1167,35 @@ namespace CompMacro11
         }
 
         // ── Компиляция ────────────────────────────────────────────
+        // Открыть редактор уровней Battle City — единственная игра пока,
+        // но метод вынесен отдельно, чтобы пункты меню «Игры» просто
+        // вызывали каждый свой такой метод, без копирования этой логики.
+        private void OpenLevelEditor()
+        {
+            if (_levelEditor == null || _levelEditor.IsDisposed)
+            {
+                _levelEditor = new LevelEditor(code =>
+                {
+                    string text = _src.Text;
+                    var startMatch = Regex.Match(text,
+                        @"// ── Уровень[^\n]*\n(// [^\n]*\n)*");
+                    if (startMatch.Success)
+                    {
+                        text = text.Substring(0, startMatch.Index)
+                             + text.Substring(startMatch.Index + startMatch.Length);
+                    }
+                    _src.Text = code + "\n" + text;
+                    _src.SelectionStart = 0;
+                    Highlight();
+                });
+                UpdateLevelsPath();
+            }
+            if (_levelEditor.Visible)
+                _levelEditor.BringToFront();
+            else
+                _levelEditor.Show(this);
+        }
+
         private void UpdateSpritesPath()
         {
             if (_project != null)
@@ -1156,9 +1214,42 @@ namespace CompMacro11
             }
         }
 
+        // Файл уровней кладём рядом с файлом спрайтов, в той же папке
+        // проекта — без отдельного поля в McProject, той же логикой,
+        // что и SpritesFile, только другое имя файла.
+        private void UpdateLevelsPath()
+        {
+            if (_project != null)
+            {
+                string spritesPath = _project.SpritesFile;
+                string dir = System.IO.Path.GetDirectoryName(spritesPath);
+                string path = System.IO.Path.Combine(dir, "levels.lvl");
+                System.IO.Directory.CreateDirectory(dir);
+                if (_levelEditor != null && !_levelEditor.IsDisposed)
+                    _levelEditor.LevelsPath = path;
+                _projectLevelsPath = path;
+            }
+            else
+            {
+                if (_levelEditor != null && !_levelEditor.IsDisposed)
+                    _levelEditor.LevelsPath = null;
+                _projectLevelsPath = null;
+            }
+        }
+
 
         private void Compile()
         {
+            // Спрайты живут в отдельном окне редактора и пишутся на диск по
+            // таймеру — без принудительного сохранения здесь компилятор мог
+            // прочитать файл ДО того, как в него попали последние правки
+            // (свежепойманный случай: новые спрайты, чёрный экран при
+            // запуске, хотя в самом редакторе всё нарисовано верно).
+            if (_spriteEditor != null && !_spriteEditor.IsDisposed)
+                _spriteEditor.SaveNow();
+            if (_levelEditor != null && !_levelEditor.IsDisposed)
+                _levelEditor.SaveNow();
+
             _linePanel.ErrorLine = -1;
             _linePanel.Invalidate();
             _src.SelectAll();
@@ -1827,6 +1918,7 @@ int main(void) {
                 AppEnvironment.LastProjectPath = _project.ProjectPath;
                 LoadCodeIntoEditor(_project.ReadMainCode());
                 UpdateSpritesPath();
+                UpdateLevelsPath();
                 _project.Settings.GameMode = _gameMode;   // текущий режим — стартовый для проекта
                 _project.Save();
                 if (_btnSave != null) _btnSave.Visible = true;
@@ -1859,6 +1951,7 @@ int main(void) {
                 AppEnvironment.LastProjectPath = path;
                 LoadCodeIntoEditor(_project.ReadMainCode());
                 UpdateSpritesPath();
+                UpdateLevelsPath();
                 ApplyProjectSettings();
                 RestoreCaret();
                 if (_btnSave != null) _btnSave.Visible = true;
@@ -1968,6 +2061,7 @@ int main(void) {
             if (!ProjectCheckSave()) return;
             _project = null;
             UpdateSpritesPath();
+            UpdateLevelsPath();
             if (_btnSave != null) _btnSave.Visible = false;
             UpdateTitle();
             SetStatus("Проект закрыт", false);

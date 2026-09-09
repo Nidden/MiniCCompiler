@@ -85,11 +85,7 @@ namespace CompMacro11
                             if ((c & 4) != 0) plane2 |= (1 << b);
                         }
                         w.Add(plane0);
-                        // Порядок байтов подтверждён тестом на реальной машине
-                        // (palette_test.mc): 177014 отдаёт МЛАДШИЙ байт под план2
-                        // (красный), СТАРШИЙ — под план1 (зелёный). Раньше здесь
-                        // было наоборот — красный и зелёный менялись местами.
-                        w.Add(plane2 | (plane1 << 8));
+                        w.Add(plane1 | (plane2 << 8));
                     }
             }
             else
@@ -169,17 +165,19 @@ namespace CompMacro11
         // Число цветов: набор 3 → 8, остальные → 4.
         static int NumColors(Sprite s) => s.PalIdx == 3 ? 8 : 4;
 
-        // 8-цветная палитра ПП — соответствует РЕАЛЬНОЙ палитре железа УКНЦ.
-        // Биты планов: план0(1)=синий, план1(2)=зелёный, план2(4)=красный.
-        // (проверено на эмуляторе: редактор показывает те же цвета, что и ПП)
+        // 8-цветная палитра ПП. Биты планов при выводе на экране в естественной
+        // кодировке (план1=зелёный, план2=красный) на РЕАЛЬНОМ железе меняются
+        // местами — подтверждено многократно на живой машине. Цвета здесь
+        // отражают то, что вы увидите на экране УКНЦ для каждого индекса,
+        // а не наивную битовую арифметику.
         static readonly Color[] PAL8 = {
             Color.Black,                    // 0 = 000
             Color.Blue,                     // 1 = 001 (план0=синий)
-            Color.Green,                    // 2 = 010 (план1=зелёный)
-            Color.Cyan,                     // 3 = 011 (синий+зелёный)
-            Color.Red,                      // 4 = 100 (план2=красный)
-            Color.Magenta,                  // 5 = 101 (синий+красный)
-            Color.Yellow,                   // 6 = 110 (зелёный+красный)
+            Color.Red,                      // 2 = 010 (на железе план1 даёт красный)
+            Color.Magenta,                  // 3 = 011 (синий+красный)
+            Color.Green,                    // 4 = 100 (на железе план2 даёт зелёный)
+            Color.Cyan,                     // 5 = 101 (синий+зелёный)
+            Color.Yellow,                   // 6 = 110 (зелёный+красный — оба плана, порядок не важен)
             Color.White                     // 7 = 111
         };
 
@@ -616,6 +614,7 @@ namespace CompMacro11
             {
                 case 0: // Файл
                     FBtn("+ Новый", ref x, C_BG3, () => NewSprite());
+                    FBtn("⧉ Копия", ref x, C_BG3, () => DuplicateSprite(), 88);
                     FBtn("✎ Имя", ref x, C_BG3, () => RenameCurrent());
                     FBtn("📂 Открыть", ref x, C_BG3, () => OpenFile());
                     FBtn("🖼 Импорт", ref x, C_BG3, () => ImportImage());
@@ -839,8 +838,25 @@ namespace CompMacro11
 
         void NewSprite()
         {
-            _sprites.Add(new Sprite($"sprite_{_sprites.Count}", 1, 16));
+            // 8 цветов по умолчанию: именно этот формат читают pp_upload/
+            // pp_sprm/pp_put в режиме Game. Раньше здесь был режим ЦП (4
+            // цвета) — свежий спрайт в Game-проекте выглядел как чёрный
+            // экран, потому что вывод не смотрит на тип в заголовке.
+            _sprites.Add(new Sprite($"sprite_{_sprites.Count}", 1, 16) { PalIdx = 3 });
             _cur = _sprites.Count - 1;
+            FullRefresh();
+        }
+
+        // Копия текущего спрайта — независимый массив пикселей, вставляется
+        // сразу за оригиналом и становится текущим.
+        void DuplicateSprite()
+        {
+            if (_sprites.Count == 0) return;
+            var src = _sprites[_cur];
+            var copy = new Sprite(src.Name + "_copy", src.Words, src.Height) { PalIdx = src.PalIdx };
+            Array.Copy(src.Pixels, copy.Pixels, src.Pixels.Length);
+            _sprites.Insert(_cur + 1, copy);
+            _cur++;
             FullRefresh();
         }
 
