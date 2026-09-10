@@ -8,6 +8,8 @@ namespace CompMacro11
         public bool IsVoid;
         public bool IsBool;  // bool — хранится как int (0/1), но выводится как bool
         public bool IsArray;
+        public bool IsStruct;       // структура (см. StructDeclNode)
+        public string StructName;   // имя типа структуры, если IsStruct
         public List<int> Dims;
         public MiniCType() { Dims = new List<int>(); }
         public int TotalElements()
@@ -40,6 +42,24 @@ namespace CompMacro11
         public List<VarDeclStmtNode> Globals = new List<VarDeclStmtNode>();
         public List<FuncDeclNode> Functions = new List<FuncDeclNode>();
         public List<GlobalArrayNode> GlobalVars = new List<GlobalArrayNode>();
+        public List<StructDeclNode> Structs = new List<StructDeclNode>();
+    }
+
+    // ─── Структура: struct Name { int a; int b; }; ───────────────
+    //   Поле — полноценный MiniCType: может быть массивом (int arr[N])
+    //   или другой структурой (вложенность) — та же машинерия типов,
+    //   что и у обычных переменных.
+    public class StructFieldNode
+    {
+        public string Name;
+        public MiniCType Type;
+    }
+
+    public class StructDeclNode
+    {
+        public string Name;
+        public List<StructFieldNode> Fields = new List<StructFieldNode>();
+        public int Line;
     }
 
     // ─── Глобальный массив (статическая память, .PSECT DATA) ────
@@ -123,6 +143,13 @@ namespace CompMacro11
     {
         public ExprNode Array;
         public ExprNode Index;
+    }
+
+    // var.field — доступ к полю структуры
+    public class MemberAccessExpr : ExprNode
+    {
+        public ExprNode Target;
+        public string Field;
     }
 
     public class UnaryExpr : ExprNode

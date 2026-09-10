@@ -362,6 +362,44 @@ namespace CompMacro11
         // ── Таблица глобальных символов ──────────────────────────
         private Dictionary<string, SymInfo> _globals = new Dictionary<string, SymInfo>();
 
+        // ── Таблица структур: имя типа → объявление (для размера и
+        //   смещений полей). Поле может быть массивом или другой
+        //   структурой — размер и смещения считаются с учётом этого.
+        private Dictionary<string, StructDeclNode> _structs = new Dictionary<string, StructDeclNode>();
+
+        private StructDeclNode StructOf(string name)
+        {
+            if (!_structs.TryGetValue(name, out var s))
+                throw new Exception($"Неизвестный тип структуры '{name}'");
+            return s;
+        }
+
+        // Размер одного поля в словах — само число или размер вложенной
+        // структуры/массива.
+        private int FieldWords(MiniCType t) =>
+            t.IsStruct ? StructWords(t.StructName) :
+            t.IsArray ? t.TotalElements() : 1;
+
+        private int StructWords(string structName)
+        {
+            int total = 0;
+            foreach (var f in StructOf(structName).Fields)
+                total += FieldWords(f.Type);
+            return total;
+        }
+
+        private int FieldOffset(string structName, string fieldName, out StructFieldNode field)
+        {
+            var s = StructOf(structName);
+            int offset = 0;
+            foreach (var f in s.Fields)
+            {
+                if (f.Name == fieldName) { field = f; return offset; }
+                offset += FieldWords(f.Type) * 2;
+            }
+            throw new Exception($"У структуры '{structName}' нет поля '{fieldName}'");
+        }
+
         // ── Генерация программы ───────────────────────────────────
         public string Generate(ProgramNode prog)
         {
@@ -369,6 +407,13 @@ namespace CompMacro11
             _funcCnt = 0; _usedLabels.Clear();
             _r0Known = false; _labelPos.Clear();
             _globals.Clear(); _strings.Clear(); _strCnt = 0;
+            _structs.Clear();
+            foreach (var sd in prog.Structs)
+            {
+                if (_structs.ContainsKey(sd.Name))
+                    throw new Exception($"Строка {sd.Line}: структура '{sd.Name}' объявлена повторно");
+                _structs[sd.Name] = sd;
+            }
             _progFuncs = new System.Collections.Generic.Dictionary<string, FuncDeclNode>();
             // Определение (с телом) имеет приоритет над прототипом.
             foreach (var f in prog.Functions)
@@ -465,7 +510,29 @@ namespace CompMacro11
                     string glbl = _globals.TryGetValue(g.Name, out var gsym) && gsym.StaticLabel != null
                         ? gsym.StaticLabel
                         : ToAsm(g.Name);
-                    if (!g.Type.IsArray)
+                    if (g.Type.IsStruct)
+                    {
+                        int words = StructWords(g.Type.StructName);
+                        var sflat = g.ArrayInit?.Flat;
+                        bool shasData = sflat != null && sflat.Exists(x => x != 0);
+                        if (!shasData)
+                        {
+                            E($"{glbl}:   .BLKW\t{words}.");
+                        }
+                        else
+                        {
+                            E($"{glbl}:");
+                            var ssb = new System.Text.StringBuilder();
+                            for (int i = 0; i < words; i++)
+                            {
+                                int val = (sflat != null && i < sflat.Count) ? sflat[i] : 0;
+                                if (ssb.Length > 0) ssb.Append(",");
+                                ssb.Append(val > 32767 || val < 0 ? Convert.ToString((ushort)val, 8) : $"{val}.");
+                                if ((i + 1) % 8 == 0 || i == words - 1) { E($"        .WORD\t{ssb}"); ssb.Clear(); }
+                            }
+                        }
+                    }
+                    else if (!g.Type.IsArray)
                     {
                         // Скалярная глобальная переменная
                         int initVal = 0;
@@ -731,6 +798,7 @@ namespace CompMacro11
             if (e is AssignExpr a) return ExprHasCalls(a.Target) || ExprHasCalls(a.Value);
             if (e is TernaryExpr t) return ExprHasCalls(t.Cond) || ExprHasCalls(t.Then) || ExprHasCalls(t.Else);
             if (e is ArrayIndexExpr ai) return ExprHasCalls(ai.Array) || ExprHasCalls(ai.Index);
+            if (e is MemberAccessExpr ma) return ExprHasCalls(ma.Target);
             return false;
         }
 
@@ -747,13 +815,14 @@ namespace CompMacro11
             if (e is AssignExpr a) return ExprCallsSelf(a.Target, name) || ExprCallsSelf(a.Value, name);
             if (e is TernaryExpr t) return ExprCallsSelf(t.Cond, name) || ExprCallsSelf(t.Then, name) || ExprCallsSelf(t.Else, name);
             if (e is ArrayIndexExpr ai) return ExprCallsSelf(ai.Array, name) || ExprCallsSelf(ai.Index, name);
+            if (e is MemberAccessExpr ma) return ExprCallsSelf(ma.Target, name);
             return false;
         }
 
         // ── Символы ───────────────────────────────────────────────
         private SymInfo Decl(string name, MiniCType t)
         {
-            int bytes = t.IsArray ? t.TotalElements() * 2 : 2;
+            int bytes = t.IsStruct ? StructWords(t.StructName) * 2 : t.IsArray ? t.TotalElements() * 2 : 2;
             _cur.LocalSize += bytes;
             var info = new SymInfo { Type = t, Offset = -_cur.LocalSize, IsParam = false };
             _cur.Syms[name] = info;
@@ -932,6 +1001,35 @@ namespace CompMacro11
                     EI("MOV", "R0, -(SP)");
                     EI("JSR", "PC, RTMCPY");
                     EI("ADD", "#6., SP");
+                }
+            }
+            else if (v.Type.IsStruct)
+            {
+                var info = Decl(v.Name, v.Type);
+                int words = StructWords(v.Type.StructName);
+                var sflat = v.ArrayInit?.Flat;
+                if (sflat == null)
+                {
+                    // Без инициализатора — обнулить ВСЕ поля (иначе
+                    // остальные, кроме первого слова, останутся мусором
+                    // со стека).
+                    EC($"обнулить {v.Name} ({words} слов)");
+                    for (int w = 0; w < words; w++)
+                        EI("CLR", FP(info.Offset + w * 2));
+                }
+                else
+                {
+                    EC($"инициализировать {v.Name} ({words} слов)");
+                    for (int w = 0; w < words; w++)
+                    {
+                        int val = w < sflat.Count ? sflat[w] : 0;
+                        if (val == 0) EI("CLR", FP(info.Offset + w * 2));
+                        else
+                        {
+                            string lit = val > 32767 || val < 0 ? Convert.ToString((ushort)val, 8) : $"{val}.";
+                            EI("MOV", $"#{lit}, {FP(info.Offset + w * 2)}");
+                        }
+                    }
                 }
             }
             else if (v.Init != null) { var info = Decl(v.Name, v.Type); GenExpr(v.Init); EI("MOV", $"R0, {FP(info.Offset)}"); }
@@ -1291,6 +1389,7 @@ namespace CompMacro11
             if (e is UnaryExpr u) return ExprReferencesVar(u.Operand, varName);
             if (e is AssignExpr a) return ExprReferencesVar(a.Target, varName) || ExprReferencesVar(a.Value, varName);
             if (e is ArrayIndexExpr ai) return ExprReferencesVar(ai.Array, varName) || ExprReferencesVar(ai.Index, varName);
+            if (e is MemberAccessExpr ma) return ExprReferencesVar(ma.Target, varName);
             if (e is CallExpr c) { foreach (var arg in c.Args) if (ExprReferencesVar(arg, varName)) return true; return false; }
             return false;
         }
@@ -1454,6 +1553,14 @@ namespace CompMacro11
                 case ArrayIndexExpr ai:
                     GenArrLoad(ai); InvalidateR0();
                     break;
+                case MemberAccessExpr ma:
+                    var maType = GenMemberAddr(ma);
+                    if (maType.IsArray || maType.IsStruct)
+                        EI("MOV", "R1, R0");   // поле-массив/поле-структура — отдать адрес, не разыменовывать
+                    else
+                        EI("MOV", "(R1), R0");
+                    InvalidateR0();
+                    break;
                 case UnaryExpr u:
                     GenUnary(u);
                     break;
@@ -1498,7 +1605,7 @@ namespace CompMacro11
         private void GenIdent(IdentExpr id)
         {
             var sym = Sym(id.Name, id.Line);
-            if (sym.Type.IsArray)
+            if (sym.Type.IsArray || sym.Type.IsStruct)
             {
                 if (sym.IsParam) EI("MOV", $"{FP(sym.Offset)}, R0");
                 else LoadArrayAddr(sym);
@@ -1515,6 +1622,7 @@ namespace CompMacro11
             {
                 var sym = Sym(id.Name, id.Line);
                 if (sym.Type.IsArray) throw new Exception($"Строка {id.Line}: присваивание массиву");
+                if (sym.Type.IsStruct) throw new Exception($"Строка {id.Line}: присваивание структуре целиком не поддерживается — только отдельным полям (var.field = ...)");
                 if (sym.StaticLabel != null)
                 {
                     EI("MOV", $"#{sym.StaticLabel}, R1"); // адрес глобальной переменной
@@ -1527,7 +1635,49 @@ namespace CompMacro11
                 }
             }
             else if (lval is ArrayIndexExpr ai) GenArrAddr(ai);
+            else if (lval is MemberAccessExpr ma) GenMemberAddr(ma);
             else throw new Exception($"Строка {lval.Line}: недопустимый lvalue");
+        }
+
+        // Адрес поля структуры → R1. В этой версии Target всегда простая
+        // переменная (поля не бывают структурами — вложенности нет).
+        // Адрес поля структуры → R1. Возвращает MiniCType самого поля —
+        // нужно вызывающему, чтобы понять, читать ли значение сразу
+        // (скаляр) или отдать адрес дальше (поле-массив/поле-структура,
+        // для цепочек вроде a.b.c или a.arr[i]). Target может быть
+        // простой переменной ИЛИ другим MemberAccessExpr — тогда сначала
+        // рекурсивно находим адрес внешнего поля.
+        private MiniCType GenMemberAddr(MemberAccessExpr ma)
+        {
+            MiniCType baseType;
+            if (ma.Target is IdentExpr tid)
+            {
+                var sym = Sym(tid.Name, tid.Line);
+                baseType = sym.Type;
+                if (sym.StaticLabel != null)
+                    EI("MOV", $"#{sym.StaticLabel}, R1");
+                else
+                {
+                    EI("MOV", "R5, R1");
+                    if (sym.Offset != 0)
+                        EI(sym.Offset > 0 ? "ADD" : "SUB", $"#{Math.Abs(sym.Offset)}., R1");
+                }
+            }
+            else if (ma.Target is MemberAccessExpr inner)
+            {
+                baseType = GenMemberAddr(inner);   // адрес внешнего поля уже в R1
+            }
+            else
+            {
+                throw new Exception($"Строка {ma.Line}: слева от '.' должна быть переменная-структура или другое поле-структура");
+            }
+
+            if (!baseType.IsStruct)
+                throw new Exception($"Строка {ma.Line}: слева от '.' не структура");
+            int offset = FieldOffset(baseType.StructName, ma.Field, out var field);
+            if (offset != 0)
+                EI("ADD", $"#{offset}., R1");
+            return field.Type;
         }
 
         private void GenArrLoad(ArrayIndexExpr ai)
@@ -1546,10 +1696,28 @@ namespace CompMacro11
             while (node is ArrayIndexExpr aie) { chain.Add(aie); node = aie.Array; }
             chain.Reverse();
 
-            var rootId = node as IdentExpr
-                ?? throw new Exception($"Строка {ai.Line}: сложная индексация не поддерживается");
-            var sym = Sym(rootId.Name, rootId.Line);
-            var dims = sym.Type.Dims;
+            // Корень — обычная переменная ИЛИ поле-массив (x.arr[i]).
+            // Для поля адрес считаем СРАЗУ (GenMemberAddr) и прячем в
+            // стек — вычисление индексов ниже может свободно занимать
+            // R1 как временный регистр (тот же Хорнер это уже делает).
+            SymInfo sym = null;
+            List<int> dims;
+            bool rootIsField = node is MemberAccessExpr;
+            if (rootIsField)
+            {
+                var fieldType = GenMemberAddr((MemberAccessExpr)node);
+                if (!fieldType.IsArray)
+                    throw new Exception($"Строка {ai.Line}: поле не является массивом");
+                dims = fieldType.Dims;
+                EI("MOV", "R1, -(SP)");   // адрес поля — на время вычисления индекса
+            }
+            else
+            {
+                var rootId = node as IdentExpr
+                    ?? throw new Exception($"Строка {ai.Line}: сложная индексация не поддерживается");
+                sym = Sym(rootId.Name, rootId.Line);
+                dims = sym.Type.Dims;
+            }
 
             // R2 = index[0]
             GenExpr(chain[0].Index);
@@ -1577,7 +1745,9 @@ namespace CompMacro11
             }
 
             // Базовый адрес → R1
-            if (sym.IsParam && sym.Type.IsArray)
+            if (rootIsField)
+                EI("MOV", "(SP)+, R1");   // вернуть сохранённый адрес поля
+            else if (sym.IsParam && sym.Type.IsArray)
                 EI("MOV", $"{FP(sym.Offset)}, R1");
             else if (sym.StaticLabel != null)
                 EI("MOV", $"#{sym.StaticLabel}, R1");  // глобальный/статический массив
@@ -2475,8 +2645,32 @@ namespace CompMacro11
 
             if (a.Op == "=")
             {
+                // Присваивание структуры целиком: a = b, оба одного типа.
+                // Копируем поле за полем через адрес — сама переменная-
+                // структура уже отдаёт свой адрес в R0 (как массив).
+                if (a.Target is IdentExpr stid)
+                {
+                    var maybeSym = Sym(stid.Name, stid.Line);
+                    if (maybeSym.Type.IsStruct)
+                    {
+                        if (!(a.Value is IdentExpr svid))
+                            throw new Exception($"Строка {a.Line}: структуре можно присвоить только другую переменную того же типа структуры");
+                        var ssym = Sym(svid.Name, svid.Line);
+                        if (!ssym.Type.IsStruct || ssym.Type.StructName != maybeSym.Type.StructName)
+                            throw new Exception($"Строка {a.Line}: несовпадающие типы структур в присваивании ({ssym.Type} → {maybeSym.Type})");
+                        int words = StructWords(maybeSym.Type.StructName);
+                        GenExpr(a.Value);              // R0 = адрес источника
+                        EI("MOV", "R0, R1");
+                        GenExpr(a.Target);              // R0 = адрес приёмника
+                        EI("MOV", "R0, R2");
+                        EC($"структура целиком: {svid.Name} → {stid.Name} ({words} слов)");
+                        for (int w = 0; w < words; w++)
+                            EI("MOV", "(R1)+, (R2)+");
+                        return;
+                    }
+                }
                 if (a.Target is IdentExpr tid &&
-                    _cur.Syms.TryGetValue(tid.Name, out var sym) && !sym.Type.IsArray)
+                    _cur.Syms.TryGetValue(tid.Name, out var sym) && !sym.Type.IsArray && !sym.Type.IsStruct)
                 {
                     GenExpr(a.Value);
                     // bool: нормализовать к 0/1 — любое ненулевое → 1

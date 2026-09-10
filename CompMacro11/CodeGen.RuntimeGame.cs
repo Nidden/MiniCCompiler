@@ -456,6 +456,7 @@ namespace CompMacro11
             E("        RTS\tPC");
             E("");
 
+
             // ── RTPSTR: вывод строки ─────────────────────────────
             E("; RTPSTR — print_str(ptr): вывод строки байт за байтом, завершённой 0.");
             E("RTPSTR:");

@@ -337,6 +337,7 @@ namespace CompMacro11
         int _zoom = 3;                  // экранных пикселей на игровой пиксель (клетка 16px * zoom)
         Panel _canvas;
         FlowLayoutPanel _thumbPanel;
+        ToolTip _toolTip = new ToolTip();
         Panel _palPanel;
         Action<string> _insertCode;
         string _levelsPath;
@@ -390,17 +391,20 @@ namespace CompMacro11
 
             if (_levels.Count == 0) _levels.Add(new LevelMap("level1"));
 
-            var top = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = C_BG2 };
+            var top = new Panel { Dock = DockStyle.Top, Height = 42, BackColor = C_BG2 };
             Controls.Add(top);
-            int tx = 8;
-            TBtn(top, "+ Новый", ref tx, C_BG3, () => NewLevel());
-            TBtn(top, "⧉ Копия", ref tx, C_BG3, () => DuplicateLevel());
-            TBtn(top, "🗑 Удалить", ref tx, C_BG3, () => DeleteLevel());
-            TBtn(top, "✎ Имя", ref tx, C_BG3, () => RenameCurrent());
-            TBtn(top, "→ В код", ref tx, Color.FromArgb(0, 80, 50), () => ExportCode());
-            TBtn(top, "🔄 Картинки", ref tx, C_BG3, () => RefreshTiles(), 110);
-            TBtn(top, "📁 Папка", ref tx, C_BG3, () => OpenTilesFolder(), 90);
-            TBtn(top, "⚙ Танки", ref tx, C_BG3, () => EditSettings(), 90);
+            int tx = 10;
+            TBtn(top, "+ Новый", ref tx, C_BG3, () => NewLevel(), 90, "Создать пустой уровень");
+            TBtn(top, "⧉ Копия", ref tx, C_BG3, () => DuplicateLevel(), 90, "Дублировать текущий уровень");
+            TBtn(top, "🗑 Удалить", ref tx, C_BG3, () => DeleteLevel(), 90, "Удалить текущий уровень");
+            TBtn(top, "✎ Имя", ref tx, C_BG3, () => RenameCurrent(), 90, "Переименовать текущий уровень");
+            TSep(top, ref tx);
+            TBtn(top, "⚙ Танки", ref tx, C_BG3, () => EditSettings(), 90, "Состав врагов, точки появления, жизни");
+            TSep(top, ref tx);
+            TBtn(top, "🔄 Картинки", ref tx, C_BG3, () => RefreshTiles(), 110, "Перечитать папку Tiles с диска");
+            TBtn(top, "📁 Папка", ref tx, C_BG3, () => OpenTilesFolder(), 90, "Открыть папку Tiles в проводнике");
+            TSep(top, ref tx);
+            TBtn(top, "→ В код", ref tx, Color.FromArgb(0, 80, 50), () => ExportCode(), 90, "Вставить комментарий // level: в код — данные подставит компилятор");
 
             _palPanel = new Panel { Dock = DockStyle.Left, Width = 130, BackColor = C_BG2 };
             Controls.Add(_palPanel);
@@ -430,7 +434,7 @@ namespace CompMacro11
             RefreshThumbs();
         }
 
-        Button TBtn(Panel p, string t, ref int x, Color bg, Action click, int w = 90)
+        Button TBtn(Panel p, string t, ref int x, Color bg, Action click, int w = 90, string tip = null)
         {
             var b = new Button
             {
@@ -446,16 +450,27 @@ namespace CompMacro11
             b.FlatAppearance.BorderSize = 0;
             b.Click += (s, e) => click();
             p.Controls.Add(b);
+            if (tip != null) _toolTip.SetToolTip(b, tip);
             x += w + 6;
             return b;
+        }
+
+        // Тонкая вертикальная черта между смысловыми группами кнопок —
+        // чтобы «уровень», «текстуры» и «настройки» не сливались в один
+        // ряд одинаковых прямоугольников.
+        void TSep(Panel p, ref int x)
+        {
+            var line = new Panel { Left = x + 4, Top = 6, Width = 1, Height = 28, BackColor = C_GRAY };
+            p.Controls.Add(line);
+            x += 14;
         }
 
         void BuildPalette()
         {
             _palPanel.Controls.Clear();
-            int y = 8;
-            var lbl = new Label { Text = "Материал:", Left = 8, Top = y, Width = 110, ForeColor = C_GRAY };
-            _palPanel.Controls.Add(lbl); y += 20;
+            int y = 10;
+            var lbl = new Label { Text = "МАТЕРИАЛ", Left = 8, Top = y, Width = 114, ForeColor = C_TEXT, Font = new Font(Font, FontStyle.Bold) };
+            _palPanel.Controls.Add(lbl); y += 22;
             for (int t = 0; t <= Terrain.Ice; t++)
             {
                 int tt = t;
@@ -465,7 +480,7 @@ namespace CompMacro11
                     Left = 8,
                     Top = y,
                     Width = 114,
-                    Height = 26,
+                    Height = 28,
                     FlatStyle = FlatStyle.Flat,
                     BackColor = (_tool == t && _toolMode == 0) ? C_SEL : C_BG3,
                     ForeColor = C_TEXT
@@ -473,57 +488,70 @@ namespace CompMacro11
                 b.FlatAppearance.BorderColor = Terrain.Colors[t];
                 b.FlatAppearance.BorderSize = 2;
                 b.Click += (s, e) => { _tool = tt; _toolMode = 0; BuildPalette(); };
+                _toolTip.SetToolTip(b, "Клик по клетке красит четверть. Картинка ищется в Tiles\\" + Terrain.Names[t]);
                 _palPanel.Controls.Add(b);
-                y += 30;
+                y += 32;
             }
-            y += 10;
+
+            y += 6;
+            _palPanel.Controls.Add(new Panel { Left = 8, Top = y, Width = 114, Height = 1, BackColor = C_GRAY });
+            y += 14;
+
+            var lbl2 = new Label { Text = "ИНСТРУМЕНТЫ", Left = 8, Top = y, Width = 114, ForeColor = C_TEXT, Font = new Font(Font, FontStyle.Bold) };
+            _palPanel.Controls.Add(lbl2); y += 22;
+
             var b2 = new Button
             {
                 Text = "⚑ База",
                 Left = 8,
                 Top = y,
-                Width = 110,
-                Height = 26,
+                Width = 114,
+                Height = 28,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = _toolMode == 1 ? C_SEL : C_BG3,
                 ForeColor = C_TEXT
             };
             b2.Click += (s, e) => { _toolMode = 1; BuildPalette(); };
-            _palPanel.Controls.Add(b2); y += 30;
+            _toolTip.SetToolTip(b2, "Клик по клетке ставит базу (одна на уровень)");
+            _palPanel.Controls.Add(b2); y += 32;
+
             var b3 = new Button
             {
                 Text = "▲ Спаун врагов",
                 Left = 8,
                 Top = y,
-                Width = 110,
-                Height = 26,
+                Width = 114,
+                Height = 28,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = _toolMode == 2 ? C_SEL : C_BG3,
                 ForeColor = C_TEXT
             };
             b3.Click += (s, e) => { _toolMode = 2; BuildPalette(); };
-            _palPanel.Controls.Add(b3); y += 30;
+            _toolTip.SetToolTip(b3, "Клик добавляет точку, клик по ней же — снимает");
+            _palPanel.Controls.Add(b3); y += 32;
+
             var b4 = new Button
             {
                 Text = "🚩 Спаун игрока",
                 Left = 8,
                 Top = y,
-                Width = 110,
-                Height = 26,
+                Width = 114,
+                Height = 28,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = _toolMode == 3 ? C_SEL : C_BG3,
                 ForeColor = C_TEXT
             };
             b4.Click += (s, e) => { _toolMode = 3; BuildPalette(); };
+            _toolTip.SetToolTip(b4, "Клик добавляет точку, клик по ней же — снимает");
             _palPanel.Controls.Add(b4); y += 36;
 
             var hint = new Label
             {
-                Text = "Любой материал\nкрасится по\nчетвертям —\nкликайте по углу\nклетки, не в\nцентр. Клик по\nзанятой четверти\nстирает её.",
+                Text = "Кликайте по углу\nклетки, не в центр —\nкрасится одна\nчетверть. Клик по\nзанятой стирает её.",
                 Left = 8,
                 Top = y,
                 Width = 114,
-                Height = 120,
+                Height = 90,
                 ForeColor = C_GRAY
             };
             _palPanel.Controls.Add(hint);

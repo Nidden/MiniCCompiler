@@ -216,6 +216,7 @@ namespace CompMacro11
         Action<string> _insertCode;
 
         FlowLayoutPanel _thumbPanel;
+        ToolTip _fbToolTip = new ToolTip();
         PictureBox _pic;
         Label _zoomLbl;
         Label _sprNameLbl;
@@ -614,7 +615,7 @@ namespace CompMacro11
             {
                 case 0: // Файл
                     FBtn("+ Новый", ref x, C_BG3, () => NewSprite());
-                    FBtn("⧉ Копия", ref x, C_BG3, () => DuplicateSprite(), 88);
+                    FBtn("⧉ Копия", ref x, C_BG3, () => DuplicateSprite(), 88, "Независимая копия текущего спрайта");
                     FBtn("✎ Имя", ref x, C_BG3, () => RenameCurrent());
                     FBtn("📂 Открыть", ref x, C_BG3, () => OpenFile());
                     FBtn("🖼 Импорт", ref x, C_BG3, () => ImportImage());
@@ -639,12 +640,12 @@ namespace CompMacro11
                     FBtn("↶ Отмена", ref x, C_BG3, () => Undo(), 86);
                     FBtn("🗑 Очистить", ref x, C_BG3, () => EditClear(), 96);
                     FBtn("▦ Залить", ref x, C_BG3, () => EditFill(), 84);
-                    FBtn("◐ Инверт", ref x, C_BG3, () => EditInvert(), 84);
-                    FBtn("⟳ Поворот", ref x, C_BG3, () => EditRotate(), 92);
+                    FBtn("◐ Инверт", ref x, C_BG3, () => EditInvert(), 84, "Обратить цвета всех пикселей");
+                    FBtn("⟳ Поворот", ref x, C_BG3, () => EditRotate(), 92, "Повернуть спрайт на 90°");
                     FBtn("▣ Контур", ref x, C_BG3, () => EditOutline(), 84);
                     FBtn("⇆ Симметрия", ref x, C_BG3, () => EditSymmetry(), 104);
-                    FBtn("↔ ФлипГ", ref x, C_BG3, () => EditFlipH(), 78);
-                    FBtn("↕ ФлипВ", ref x, C_BG3, () => EditFlipV(), 78);
+                    FBtn("↔ ФлипГ", ref x, C_BG3, () => EditFlipH(), 78, "Отразить по горизонтали");
+                    FBtn("↕ ФлипВ", ref x, C_BG3, () => EditFlipV(), 78, "Отразить по вертикали");
                     break;
                 case 4: // Сдвиг
                     FBtn("← Влево", ref x, C_BG3, () => EditShift(-1, 0), 78);
@@ -653,14 +654,14 @@ namespace CompMacro11
                     FBtn("↓ Вниз", ref x, C_BG3, () => EditShift(0, 1), 74);
                     break;
                 case 5: // Экспорт
-                    FBtn("→ В код", ref x, Color.FromArgb(0, 80, 50), () => ExportCode(), 100);
+                    FBtn("→ В код", ref x, Color.FromArgb(0, 80, 50), () => ExportCode(), 100, "Вставить комментарий // sprite: — данные подставит компилятор");
                     FBtn("💾 На диск", ref x, Color.FromArgb(0, 60, 90), () => ExportToDisk(), 110);
                     break;
             }
         }
 
         // Кнопка в полосе функций (выровнена по вертикали в _funcBar).
-        Button FBtn(string t, ref int x, Color bg, Action click, int w = 82)
+        Button FBtn(string t, ref int x, Color bg, Action click, int w = 82, string tip = null)
         {
             var b = new Button
             {
@@ -677,6 +678,7 @@ namespace CompMacro11
             b.FlatAppearance.BorderSize = 0;
             b.Click += (s, e) => click();
             _funcBar.Controls.Add(b); x += w + 4;
+            if (tip != null) _fbToolTip.SetToolTip(b, tip);
             return b;
         }
 

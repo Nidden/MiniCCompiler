@@ -12,7 +12,7 @@ namespace CompMacro11
         KwInt, KwVoid, KwBool,
         // Управление
         KwIf, KwElse, KwWhile, KwFor, KwReturn, KwBreak, KwContinue,
-        KwSwitch, KwCase, KwDefault, KwDo,
+        KwSwitch, KwCase, KwDefault, KwDo, KwStruct,
         // Булевы литералы
         KwTrue, KwFalse,
         // Операторы
@@ -27,7 +27,7 @@ namespace CompMacro11
         PlusPlus, MinusMinus,
         // Разделители
         LParen, RParen, LBrace, RBrace, LBracket, RBracket,
-        Semicolon, Comma, Colon, Question,
+        Semicolon, Comma, Colon, Question, Dot,
         // Специальные
         EOF
     }
@@ -57,6 +57,7 @@ namespace CompMacro11
             {"do",       TokenType.KwDo},
             {"switch",   TokenType.KwSwitch},{"case",     TokenType.KwCase},
             {"default",  TokenType.KwDefault},
+            {"struct",   TokenType.KwStruct},
             {"return",   TokenType.KwReturn},{"break",    TokenType.KwBreak},
             {"continue", TokenType.KwContinue}
         };
@@ -263,6 +264,7 @@ namespace CompMacro11
                         case ']': Advance(); tok = new Token(TokenType.RBracket, "]", line); break;
                         case ':': Advance(); tok = new Token(TokenType.Colon, ":", line); break;
                         case '?': Advance(); tok = new Token(TokenType.Question, "?", line); break;
+                        case '.': Advance(); tok = new Token(TokenType.Dot, ".", line); break;
                         case ';': Advance(); tok = new Token(TokenType.Semicolon, ";", line); break;
                         case ',': Advance(); tok = new Token(TokenType.Comma, ",", line); break;
                         case '"':

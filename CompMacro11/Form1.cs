@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
@@ -148,6 +149,7 @@ namespace CompMacro11
         private System.Windows.Forms.Timer _hlTimer;
         private System.Windows.Forms.Timer _scrollTimer;
         private SpriteEditor _spriteEditor;
+        private ToolTip _toolTip = new ToolTip();
         private LevelEditor _levelEditor;
         private string _emulatorPath = "";   // путь к UKNCBTL.exe
         private McProject _project = null;   // текущий проект
@@ -183,9 +185,11 @@ namespace CompMacro11
             var bar = new Panel { Dock = DockStyle.Top, Height = 46, BackColor = C_BG2 };
 
             var btnCompile = MakeBtn("▶  Компилировать  [F5]", 190, C_ACCENT, 8);
+            _toolTip.SetToolTip(btnCompile, "Собрать .mac и показать результат (F5)");
             btnCompile.Click += (_, __) => Compile();
 
             var btnClear = MakeBtn("✕", 36, Color.FromArgb(60, 60, 60), 206);
+            _toolTip.SetToolTip(btnClear, "Очистить редактор кода и вывод");
             btnClear.Font = new Font("Segoe UI", 12f);
             btnClear.Click += (_, __) =>
             {
@@ -196,10 +200,12 @@ namespace CompMacro11
             };
 
             var btnExample = MakeBtn("Примеры ▾", 95, Color.FromArgb(60, 60, 60), 250);
+            _toolTip.SetToolTip(btnExample, "Готовые примеры программ");
             btnExample.Click += (_, __) => ShowExamplesMenu(btnExample);
 
 
             var btnRun = MakeBtn("▶ Эмулятор", 105, Color.FromArgb(30, 90, 50), 353);
+            _toolTip.SetToolTip(btnRun, "Собрать и сразу открыть в UKNCBTL");
             btnRun.Click += (_, __) => RunInEmulator();
 
             // Чекбокс оптимизации больше не показывается в баре —
@@ -219,6 +225,7 @@ namespace CompMacro11
                 Font = new Font("Segoe UI", 9f),
                 Cursor = Cursors.Hand
             };
+            _toolTip.SetToolTip(_chkOptimize, "Вырезать неиспользуемые блоки рантайма из .mac");
             _chkOptimize.CheckedChanged += (_, __) =>
                 SetStatus(_chkOptimize.Checked
                     ? "✓  Оптимизация рантайма включена"
@@ -238,6 +245,7 @@ namespace CompMacro11
             };
             _modeSwitch = new ModeSwitch { Location = new Point(982, 12) };
             _modeSwitch.SetState(_gameMode);
+            _toolTip.SetToolTip(_modeSwitch, "Переключить режим ЦП / Game");
             _modeSwitch.Toggled += g =>
             {
                 _gameMode = g;
@@ -253,10 +261,12 @@ namespace CompMacro11
             };
 
             var btnHelp = MakeBtn("?", 32, Color.FromArgb(50, 80, 120), 466);
+            _toolTip.SetToolTip(btnHelp, "Справка по языку и платформе");
             btnHelp.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
             btnHelp.Click += (_, __) => ShowHelp();
 
             var btnSprites = MakeBtn("🎨 Спрайты", 100, Color.FromArgb(60, 40, 80), 506);
+            _toolTip.SetToolTip(btnSprites, "Редактор спрайтов проекта");
             btnSprites.Click += (_, __) =>
             {
                 if (_spriteEditor == null || _spriteEditor.IsDisposed)
@@ -294,6 +304,7 @@ namespace CompMacro11
             };
 
             var btnGames = MakeBtn("🎮 Игры ▾", 90, Color.FromArgb(40, 60, 80), 606);
+            _toolTip.SetToolTip(btnGames, "Редакторы уровней для игр проекта");
             btnGames.Click += (_, __) =>
             {
                 var menu = new ContextMenuStrip();
@@ -328,12 +339,14 @@ namespace CompMacro11
 
             // ── Меню Проект ───────────────────────────────────────
             var btnDisk = MakeBtn("💾 Диск", 90, Color.FromArgb(50, 55, 75), 710);
+            _toolTip.SetToolTip(btnDisk, "Работа с образом диска");
             btnDisk.Click += (_, __) =>
             {
                 using (var d = new DskDialog()) d.ShowDialog(this);
             };
 
             var btnProject = MakeBtn("📁 Проект ▾", 110, Color.FromArgb(40, 70, 40), 808);
+            _toolTip.SetToolTip(btnProject, "Открыть, создать, сохранить проект");
             btnProject.Click += (_, __) =>
             {
                 var menu = new ContextMenuStrip();
@@ -616,8 +629,26 @@ namespace CompMacro11
                 BorderStyle = BorderStyle.None,
                 ReadOnly = true,
                 WordWrap = true,
-                ScrollBars = RichTextBoxScrollBars.Vertical
+                ScrollBars = RichTextBoxScrollBars.Vertical,
+                Margin = new Padding(0)
             };
+            // Обёртка с отступом — иначе текст липнет прямо к краю окна
+            var contentWrap = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(28, 28, 28), Padding = new Padding(16, 4, 8, 8) };
+            contentWrap.Controls.Add(rtb);
+
+            // Заголовок над содержимым — показывает текущий раздел,
+            // тем же стилем, что и заголовок списка слева.
+            var contentHdr = new Panel { Dock = DockStyle.Top, Height = 34, BackColor = Color.FromArgb(45, 45, 48) };
+            var contentHdrLbl = new Label
+            {
+                Text = "",
+                Dock = DockStyle.Fill,
+                ForeColor = Color.FromArgb(212, 212, 212),
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(16, 0, 0, 0)
+            };
+            contentHdr.Controls.Add(contentHdrLbl);
 
             // Левая панель — список тем
             var list = new ListBox
@@ -638,6 +669,7 @@ namespace CompMacro11
                 FillTopic(rtb, list.SelectedIndex);
                 rtb.SelectionStart = 0;
                 rtb.ScrollToCaret();
+                contentHdrLbl.Text = list.SelectedItem?.ToString() ?? "";
             };
 
             // Заголовок над списком
@@ -654,16 +686,17 @@ namespace CompMacro11
             var split = new SplitContainer
             {
                 Dock = DockStyle.Fill,
-                SplitterDistance = 170,
                 BackColor = Color.FromArgb(28, 28, 28),
                 SplitterWidth = 3
             };
             split.Panel1.Controls.Add(list);
             split.Panel1.Controls.Add(listHdr);
-            split.Panel2.Controls.Add(rtb);
-            split.Panel1MinSize = 160;
+            split.Panel2.Controls.Add(contentWrap);
+            split.Panel2.Controls.Add(contentHdr);
+            split.Panel1MinSize = 140;
 
             dlg.Controls.Add(split);
+            split.SplitterDistance = 150;   // после добавления в форму — иначе SplitContainer ещё не знает свой настоящий размер и клеит значение не туда
             dlg.Show();
             list.SelectedIndex = 0;   // показать первую тему
         }
@@ -709,6 +742,43 @@ namespace CompMacro11
                     HelpT(r, "  Логика:      && || !\n", C_TEXT);
                     HelpT(r, "  Присвоение:  = += -= *= /=\n", C_TEXT);
                     HelpT(r, "  Унарные:     - ! ++ --\n", C_TEXT);
+
+                    HelpT(r, "\n═══ СТРУКТУРЫ (struct) ══════════════════════════════════\n", Color.FromArgb(78, 201, 176));
+                    HelpT(r, "\n  Объявление типа — только на верхнем уровне файла. Поле\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "  может быть массивом или другой структурой (вложенность):\n\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "    struct Inner {\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        int a;\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        int b;\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    };\n\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    struct Tank {\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        struct Inner inner;    // вложенная структура\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        int scores[5];         // поле-массив\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        bool alive;\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    };\n\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "  Переменная этого типа — глобально или внутри функции,\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "  можно сразу с инициализатором (по порядку полей):\n\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "    struct Tank player;              // глобальная, нули\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "\n    void f() {\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        struct Tank local = {..};   // локальная\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    }\n\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "  Доступ к полю — через точку, цепочкой сколько угодно:\n\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "    player.scores[0] = 10;\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    player.inner.a = player.inner.a + 1;\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    if (player.alive) { ... }\n\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "  Присваивание структуры целиком — переменная в переменную,\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "  того же типа, копируются все поля:\n\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "    struct Tank a;\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    struct Tank b;\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    b = a;   // независимая копия, не ссылка\n\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "  Поля доступны из ЛЮБОЙ функции — так же, как обычные\n", C_TEXT);
+                    HelpT(r, "  глобальные переменные, без дополнительной передачи.\n\n", C_TEXT);
+                    HelpT(r, "\n  Пока НЕ поддерживается:\n\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "    • Структуры как параметры или возврат функции\n", C_TEXT);
+                    HelpT(r, "    • Массивы структур (struct Tank arr[10])\n\n", C_TEXT);
+                    HelpT(r, "  Каждое поле — минимум одно слово (2 байта); поле-массив\n", C_TEXT);
+                    HelpT(r, "  и вложенная структура занимают столько слов, сколько\n", C_TEXT);
+                    HelpT(r, "  нужно им самим. Локальная структура зануляется целиком\n", C_TEXT);
+                    HelpT(r, "  при входе в блок, где объявлена (если нет инициализатора).\n", C_TEXT);
 
                     break;
                 case 2:
@@ -818,6 +888,7 @@ namespace CompMacro11
                     HelpT(r, "  Esc        — закрыть справку\n", C_TEXT);
 
                     break;
+
             }
         }
 
@@ -1271,6 +1342,8 @@ namespace CompMacro11
             {
                 int spriteLineOffset;
                 string fullSrc = InjectSprites(src, out spriteLineOffset);
+                int levelLineOffset;
+                fullSrc = InjectLevels(fullSrc, out levelLineOffset);
                 fullSrc = StdLib.Inject(fullSrc);       // встроенные Mini-C библиотеки
 
                 var tokens = new Lexer(fullSrc).Tokenize();
@@ -1300,10 +1373,12 @@ namespace CompMacro11
                 var m = Regex.Match(ex.Message, @"Строка\s+(\d+)");
                 if (m.Success && int.TryParse(m.Groups[1].Value, out int lineNum))
                 {
-                    // Вычесть строки вставленного кода спрайтов
+                    // Вычесть строки вставленного кода спрайтов и уровней
                     int spriteOffset;
-                    InjectSprites(src, out spriteOffset);
-                    int userLine = Math.Max(1, lineNum - spriteOffset);
+                    string afterSprites = InjectSprites(src, out spriteOffset);
+                    int levelOffset;
+                    InjectLevels(afterSprites, out levelOffset);
+                    int userLine = Math.Max(1, lineNum - spriteOffset - levelOffset);
 
                     _linePanel.ErrorLine = userLine;
                     _linePanel.Invalidate();
@@ -1534,6 +1609,67 @@ namespace CompMacro11
                     if (sp.Pixels != null && sp.Pixels.Length == sp.PixelWidth * sp.Height)
                         result.Add(sp);
                 }
+                return result;
+            }
+            catch { return null; }
+        }
+
+        // ── Уровни — та же схема, что и спрайты: комментарий // level: Имя
+        //   в исходнике заменяется на реальный int Имя[...] = {...} перед
+        //   компиляцией. Живой редактор — приоритет, файл — запасной путь.
+        private string InjectLevels(string src, out int lineOffset)
+        {
+            lineOffset = 0;
+            string levelCode = BuildLevelCode(src);
+            if (string.IsNullOrEmpty(levelCode)) return src;
+
+            var m = Regex.Match(src, @"^\s*(void|int)\s+\w+\s*\(", RegexOptions.Multiline);
+            int insertPos = m.Success ? m.Index : 0;
+            lineOffset = levelCode.Split('\n').Length;
+            return src.Substring(0, insertPos) + levelCode + "\n" + src.Substring(insertPos);
+        }
+
+        private string BuildLevelCode(string src)
+        {
+            var mentioned = new HashSet<string>();
+            foreach (Match m in Regex.Matches(src, @"//\s*level:\s*(\w+)"))
+                mentioned.Add(m.Groups[1].Value);
+            if (mentioned.Count == 0) return "";
+
+            List<LevelMap> levels = null;
+            if (_levelEditor != null && !_levelEditor.IsDisposed)
+                levels = _levelEditor.GetLevels();
+            else
+                levels = LoadLevelsFromFile();
+            if (levels == null) levels = new List<LevelMap>();
+
+            var missing = new List<string>();
+            var found = new HashSet<string>();
+            foreach (var lv in levels) found.Add(lv.Name);
+            foreach (var name in mentioned)
+                if (!found.Contains(name)) missing.Add(name);
+            if (missing.Count > 0)
+                SetStatus($"⚠  Уровни не найдены: {string.Join(", ", missing)}", true);
+
+            var sb = new StringBuilder();
+            foreach (var lv in levels)
+                if (mentioned.Contains(lv.Name))
+                    sb.AppendLine(lv.ExportC());
+            return sb.ToString();
+        }
+
+        private List<LevelMap> LoadLevelsFromFile()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(_projectLevelsPath) || !System.IO.File.Exists(_projectLevelsPath))
+                    return null;
+                var text = System.IO.File.ReadAllText(_projectLevelsPath, System.Text.Encoding.UTF8);
+                text = text.Replace("\r\n", "\n");
+                var blocks = text.Split(new[] { "---\n" }, StringSplitOptions.RemoveEmptyEntries);
+                var result = new List<LevelMap>();
+                foreach (var b in blocks)
+                    if (b.Trim().Length > 0) result.Add(LevelMap.Deserialize(b));
                 return result;
             }
             catch { return null; }

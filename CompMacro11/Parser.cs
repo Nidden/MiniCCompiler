@@ -37,15 +37,74 @@ namespace CompMacro11
             var prog = new ProgramNode();
             while (!Check(TokenType.EOF))
             {
+                // struct Name { ... };  → объявление типа структуры
+                // struct Name ident...; → глобальная переменная этого типа
                 // тип ident '[' → глобальный массив
                 // тип ident '=' или ';' → глобальная переменная
                 // тип ident '(' → функция
-                if ((Check(TokenType.KwInt) || Check(TokenType.KwBool)) && PeekIsGlobal())
+                if (Check(TokenType.KwStruct) && PeekStructIsTypeDecl())
+                {
+                    var sd = ParseStructDecl();
+                    _structFieldCounts[sd.Name] = StructTotalWords(sd);
+                    prog.Structs.Add(sd);
+                }
+                else if (Check(TokenType.KwStruct) ||
+                         ((Check(TokenType.KwInt) || Check(TokenType.KwBool)) && PeekIsGlobal()))
                     prog.Globals.AddRange(ParseGlobalVar());
                 else
                     prog.Functions.Add(ParseFuncDecl());
             }
             return prog;
+        }
+
+        // После 'struct Name' идёт '{' → это объявление типа, а не
+        // переменной (единственное место, где после имени типа сразу
+        // видна фигурная скобка, а не идентификатор переменной).
+        private bool PeekStructIsTypeDecl() => Peek(2).Type == TokenType.LBrace;
+
+        // Суммарный размер структуры в словах — поле-массив даёт
+        // TotalElements() слов, поле-структура — размер той структуры
+        // (уже известный, раз объявления идут по порядку), обычное
+        // поле — одно слово.
+        private int StructTotalWords(StructDeclNode sd)
+        {
+            int total = 0;
+            foreach (var f in sd.Fields)
+            {
+                if (f.Type.IsStruct)
+                    total += _structFieldCounts.TryGetValue(f.Type.StructName, out int n) ? n : 1;
+                else if (f.Type.IsArray)
+                    total += f.Type.TotalElements();
+                else
+                    total += 1;
+            }
+            return total;
+        }
+
+        // struct Name { int a; bool b; int arr[10]; struct Other c; ... };
+        // Поле — любой тип, включая массив и другую структуру
+        // (объявленную выше по файлу).
+        private StructDeclNode ParseStructDecl()
+        {
+            int line = Cur.Line;
+            Expect(TokenType.KwStruct);
+            var name = Expect(TokenType.Identifier).Value;
+            Expect(TokenType.LBrace);
+            var decl = new StructDeclNode { Name = name, Line = line };
+            while (!Check(TokenType.RBrace) && !Check(TokenType.EOF))
+            {
+                int fline = Cur.Line;
+                var ft = ParseBaseType();      // int, bool, или struct Имя
+                if (ft.IsVoid)
+                    throw new Exception($"Строка {fline}: поле структуры не может быть void");
+                var fname = Expect(TokenType.Identifier).Value;
+                ParseArrayDims(ft, firstCanBeEmpty: false);   // допускает int arr[10];
+                Expect(TokenType.Semicolon);
+                decl.Fields.Add(new StructFieldNode { Name = fname, Type = ft });
+            }
+            Expect(TokenType.RBrace);
+            Expect(TokenType.Semicolon);
+            return decl;
         }
 
         // Проверить lookahead: тип ident затем не '(' → глобальная переменная/массив
@@ -71,7 +130,7 @@ namespace CompMacro11
             var decls = new List<VarDeclStmtNode>();
             do
             {
-                var vt = new MiniCType { IsVoid = t.IsVoid, IsBool = t.IsBool };
+                var vt = new MiniCType { IsVoid = t.IsVoid, IsBool = t.IsBool, IsStruct = t.IsStruct, StructName = t.StructName };
                 var name = Expect(TokenType.Identifier).Value;
                 ParseArrayDims(vt, firstCanBeEmpty: false);
                 ExprNode init = null;
@@ -79,6 +138,7 @@ namespace CompMacro11
                 if (Match(TokenType.Assign))
                 {
                     if (vt.IsArray) arrInit = ParseArrayInit(vt);
+                    else if (vt.IsStruct) arrInit = ParseStructInit(vt.StructName, line);
                     else init = ParseExpr();
                 }
                 decls.Add(new VarDeclStmtNode { Name = name, Type = vt, Init = init, ArrayInit = arrInit, Line = line });
@@ -88,10 +148,17 @@ namespace CompMacro11
             return decls;
         }
 
-        // ── Тип (int, bool или void) с размерами массива ──────────
+        // ── Тип (int, bool, struct Имя или void) с размерами массива ──
         private MiniCType ParseBaseType()
         {
             var t = new MiniCType();
+            if (Check(TokenType.KwStruct))
+            {
+                Consume();
+                t.IsStruct = true;
+                t.StructName = Expect(TokenType.Identifier).Value;
+                return t;
+            }
             if (Check(TokenType.KwVoid)) { Consume(); t.IsVoid = true; }
             else if (Check(TokenType.KwBool)) { Consume(); t.IsBool = true; }
             else Expect(TokenType.KwInt);
@@ -204,7 +271,7 @@ namespace CompMacro11
             if (Check(TokenType.KwContinue)) { Consume(); Expect(TokenType.Semicolon); return new ContinueStmtNode { Line = line }; }
             if (Check(TokenType.KwSwitch)) return ParseSwitch();
             if (Check(TokenType.KwDo)) return ParseDoWhile();
-            if (Check(TokenType.KwInt) || Check(TokenType.KwVoid) || Check(TokenType.KwBool))
+            if (Check(TokenType.KwInt) || Check(TokenType.KwVoid) || Check(TokenType.KwBool) || Check(TokenType.KwStruct))
                 return ParseVarDecl();
 
             var expr = ParseExpr();
@@ -281,7 +348,7 @@ namespace CompMacro11
             do
             {
                 // Для каждой переменной в списке — копируем базовый тип
-                var vt = new MiniCType { IsVoid = t.IsVoid, IsBool = t.IsBool };
+                var vt = new MiniCType { IsVoid = t.IsVoid, IsBool = t.IsBool, IsStruct = t.IsStruct, StructName = t.StructName };
                 var name = Expect(TokenType.Identifier).Value;
                 ParseArrayDims(vt, firstCanBeEmpty: false);
                 ExprNode init = null;
@@ -290,6 +357,8 @@ namespace CompMacro11
                 {
                     if (vt.IsArray)
                         arrInit = ParseArrayInit(vt);
+                    else if (vt.IsStruct)
+                        arrInit = ParseStructInit(vt.StructName, line);
                     else
                         init = ParseExpr();
                 }
@@ -309,6 +378,22 @@ namespace CompMacro11
             node.Flat = ParseFlatInits();
             // Дополнить нулями до полного размера
             int total = t.TotalElements();
+            while (node.Flat.Count < total) node.Flat.Add(0);
+            return node;
+        }
+
+        // Число полей уже разобранных структур — нужно только для
+        // проверки/дополнения инициализатора нулями (struct X x = {1,2};),
+        // сам разбор ссылается на CodeGen._structs отдельно не может —
+        // парсер не знает о генераторе кода, поэтому копия здесь, локально.
+        private Dictionary<string, int> _structFieldCounts = new Dictionary<string, int>();
+
+        private ArrayInitNode ParseStructInit(string structName, int line)
+        {
+            if (!_structFieldCounts.TryGetValue(structName, out int total))
+                throw new Exception($"Строка {line}: неизвестный тип структуры '{structName}'");
+            var node = new ArrayInitNode();
+            node.Flat = ParseFlatInits();
             while (node.Flat.Count < total) node.Flat.Add(0);
             return node;
         }
@@ -567,6 +652,12 @@ namespace CompMacro11
                     var idx = ParseExpr();
                     Expect(TokenType.RBracket);
                     expr = new ArrayIndexExpr { Array = expr, Index = idx, Line = line };
+                }
+                else if (Check(TokenType.Dot))
+                {
+                    Consume();
+                    var field = Expect(TokenType.Identifier).Value;
+                    expr = new MemberAccessExpr { Target = expr, Field = field, Line = line };
                 }
                 else if (Check(TokenType.PlusPlus))
                 {
