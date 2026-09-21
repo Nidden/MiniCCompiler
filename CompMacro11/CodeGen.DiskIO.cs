@@ -218,6 +218,47 @@ namespace CompMacro11
             E("        MOV\t(SP)+, R5");
             E("        RTS\tPC");
 
+            // ── RTFLOADB — floadblk(name,buf,maxwords,block) → R0 = слов прочитано / -1 ──
+            //   Как RTFLOAD, но блок для .READW берётся из аргумента, а не
+            //   всегда 0 — можно прочитать N-ю запись из файла, где записи
+            //   лежат подряд, каждая ровно по одному RT-11-блоку (512 байт).
+            E("; RTFLOADB — floadblk(name,buf,maxwords,block): как fload(), но с заданного блока.");
+            E("RTFLOADB:");
+            E("        MOV\tR5, -(SP)");
+            E("        MOV\tSP, R5");
+            E("        MOV\tR1, -(SP)");
+            E("        MOV\tR2, -(SP)");
+            E("        MOV\t4.(R5), R0");          // name
+            E("        JSR\tPC, RTR50");           // → FNAME
+            // .LOOKUP канал 0
+            E("        MOV\t#<1*400>, EMTBLK");     // старший байт=код 1, младший=канал 0
+            E("        MOV\t#FNAME, EMTBLK+2");     // +2 = указатель на имя (dblk)
+            E("        CLR\tEMTBLK+4");             // +4 = seqnum
+            E("        MOV\t#EMTBLK, R0");
+            E("        EMT\t375");
+            E("        BCS\tRTFBLER");              // ошибка открытия
+            // .READW канал 0: блок = аргумент, буфер, maxwords слов
+            E("        MOV\t#<10*400>, EMTBLK");    // код 10(окт) | канал 0
+            E("        MOV\t10.(R5), EMTBLK+2");    // блок — из 4-го аргумента
+            E("        MOV\t6.(R5), EMTBLK+4");     // буфер
+            E("        MOV\t8.(R5), EMTBLK+6");     // maxwords
+            E("        CLR\tEMTBLK+10");             // 0 = синхронный W-режим
+            E("        MOV\t#EMTBLK, R0");
+            E("        EMT\t375");
+            // R0 после .READW = число реально прочитанных слов (даже если BCS/EOF)
+            E("        MOV\tR0, -(SP)");
+            // .CLOSE канал 0
+            E("        MOV\t#<6*400>, R0");
+            E("        EMT\t374");
+            E("        MOV\t(SP)+, R0");            // вернуть счётчик прочитанного
+            E("        BR\tRTFBLX");
+            E("RTFBLER: MOV\t#-1, R0");             // -1: файл не найден
+            E("RTFBLX:");
+            E("        MOV\t(SP)+, R2");
+            E("        MOV\t(SP)+, R1");
+            E("        MOV\t(SP)+, R5");
+            E("        RTS\tPC");
+
             // ── RTFSAVE — fsave(name, buf, words) → R0 = 0 успех / -1 ──
             E("; RTFSAVE — fsave(name,buf,words): записать буфер в файл.");
             E("RTFSAVE:");

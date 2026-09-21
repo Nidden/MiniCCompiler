@@ -112,6 +112,105 @@ namespace CompMacro11
             return f;
         }
 
+        // ── на сколько кусков разбито свободное место (1 = одна дыра) ──
+        //    Сжатие имеет смысл, если кусков больше одного или единственная
+        //    дыра стоит не в конце (за ней лежат файлы).
+        public bool NeedsSqueeze()
+        {
+            var dir = ReadDir();
+            int chunks = 0;
+            foreach (var e in dir) if (e.Empty && e.Blocks > 0) chunks++;
+            if (chunks == 0) return false;
+            if (chunks > 1) return true;
+            for (int i = dir.Count - 1; i >= 0; i--)
+            {
+                if (dir[i].Empty && dir[i].Blocks == 0) continue;
+                return !dir[i].Empty;           // последняя значимая запись — файл → дыра внутри
+            }
+            return false;
+        }
+
+        // ── сжатие (как SQUEEZE в RT-11): все файлы сдвигаются к началу
+        //    области данных подряд, свободное место собирается одним куском
+        //    в конце. Порядок файлов сохраняется. Возвращает число
+        //    перемещённых файлов. ──
+        public int Squeeze()
+        {
+            var dir = ReadDir();
+            if (dir.Count == 0) return 0;
+            int pos = GetW(SEG0 * 512 + 8);     // начало области данных
+            int end = pos;
+            foreach (var e in dir) end += e.Blocks;
+
+            var rebuilt = new List<Entry>();
+            int moved = 0;
+            foreach (var e in dir)
+            {
+                if (e.Empty) continue;
+                if (e.StartBlock != pos)
+                {
+                    // сдвиг только влево (pos <= StartBlock) — Array.Copy
+                    // корректно обрабатывает перекрытие внутри одного массива
+                    Array.Copy(_data, e.StartBlock * 512, _data, pos * 512, e.Blocks * 512);
+                    moved++;
+                }
+                rebuilt.Add(new Entry { Empty = false, Name = e.Name, Blocks = e.Blocks, StartBlock = pos, RawStatus = e.RawStatus });
+                pos += e.Blocks;
+            }
+            int free = end - pos;
+            if (free > 0)
+            {
+                Array.Clear(_data, pos * 512, free * 512);   // освобождённое место — нулями
+                rebuilt.Add(new Entry { Empty = true, Blocks = free, StartBlock = pos });
+            }
+            WriteDir(rebuilt);
+            File.WriteAllBytes(Path, _data);
+            return moved;
+        }
+
+        // ── создать чистый образ RT-11 (как INIT) ──
+        //    Блок 0 — загрузчик (пусто), блок 1 — home block, блоки 2..5 —
+        //    резерв, с блока 6 — каталог из segments сегментов по 2 блока,
+        //    дальше данные. Весь объём данных — одна EMPTY-запись.
+        public static void CreateBlank(string path, int totalBlocks, int segments = 4)
+        {
+            int dataStart = SEG0 + 2 * segments;
+            if (totalBlocks < dataStart + 1)
+                throw new ArgumentException($"Слишком маленький образ: нужно больше {dataStart} блоков.");
+            if (totalBlocks > 65535)
+                throw new ArgumentException("RT-11 не поддерживает тома больше 65535 блоков.");
+
+            var d = new byte[totalBlocks * 512];
+            void W(int off, int v) { d[off] = (byte)(v & 0xFF); d[off + 1] = (byte)((v >> 8) & 0xFF); }
+            void A(int off, string s) { for (int i = 0; i < s.Length; i++) d[off + i] = (byte)s[i]; }
+
+            // ── home block (блок 1); смещения — восьмеричные из док. RT-11 ──
+            int hb = 512;
+            W(hb + 0x1D2, 1);                   // 0722 размер кластера
+            W(hb + 0x1D4, SEG0);                // 0724 первый блок каталога
+            W(hb + 0x1D6, Pack3("V3A"));        // 0726 версия системы (RAD50)
+            A(hb + 0x1D8, "RT11A       ");      // 0730 метка тома, 12 символов
+            A(hb + 0x1E4, "            ");      // 0744 владелец, 12 символов
+            A(hb + 0x1F0, "DECRT11A    ");      // 0760 идентификатор системы
+            int sum = 0;                        // 0776 контрольная сумма слов 0..0774
+            for (int off = 0; off < 0x1FE; off += 2) sum += d[hb + off] | (d[hb + off + 1] << 8);
+            W(hb + 0x1FE, sum & 0xFFFF);
+
+            // ── первый сегмент каталога ──
+            int sb = SEG0 * 512;
+            W(sb + 0, segments);                // всего сегментов
+            W(sb + 2, 0);                       // следующий сегмент — нет
+            W(sb + 4, 1);                       // старший используемый
+            W(sb + 6, 0);                       // доп. байт на запись
+            W(sb + 8, dataStart);               // блок начала данных
+            int e = sb + 10;
+            W(e + 0, 512);                      // EMPTY
+            W(e + 8, totalBlocks - dataStart);  // вся область данных
+            W(e + 14, 2048);                    // конец сегмента
+
+            File.WriteAllBytes(path, d);
+        }
+
         // ── извлечь файл в массив байт ──
         public byte[] Extract(string name, int byteLen = -1)
         {
@@ -187,6 +286,24 @@ namespace CompMacro11
             foreach (var e in dir)
                 if (!e.Empty && string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))
                 { e.Empty = true; e.Name = null; found = true; }
+            if (found) { WriteDir(dir); File.WriteAllBytes(Path, _data); }
+            return found;
+        }
+
+        // ── переименовать файл: та же запись каталога, новое имя (RAD50
+        //    пакуется заново при записи каталога — WriteDir делает это
+        //    сама через PackName, как и для AddFile) ──
+        public bool RenameFile(string oldName, string newName)
+        {
+            newName = newName.ToUpper();
+            var dir = ReadDir();
+            foreach (var e in dir)
+                if (!e.Empty && string.Equals(e.Name, newName, StringComparison.OrdinalIgnoreCase))
+                    return false;   // имя уже занято другим файлом
+            bool found = false;
+            foreach (var e in dir)
+                if (!e.Empty && string.Equals(e.Name, oldName, StringComparison.OrdinalIgnoreCase))
+                { e.Name = newName; found = true; }
             if (found) { WriteDir(dir); File.WriteAllBytes(Path, _data); }
             return found;
         }

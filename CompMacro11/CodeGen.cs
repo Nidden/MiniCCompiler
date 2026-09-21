@@ -114,7 +114,7 @@ namespace CompMacro11
             "spr", "pp_spr", "pp_blit", "vpoke", "pp_peek", "vload", "pp_vspr",
             "pp_spr_q", "pp_flush", "pp_qhead", "pp_qtail",
             "pp_upload", "pp_sprm", "pp_upaddr", "pp_put", "pp_putf",
-            "fload", "fsave", "print_buf", "str_to_buf",
+            "fload", "fsave", "floadblk", "print_buf", "str_to_buf",
             // ── Функции для файлового менеджера (Norton Commander) ──
             "fdelete", "frename", "mkdir", "getcwd", "chdir", "file_info"
         };
@@ -3244,6 +3244,23 @@ namespace CompMacro11
                     GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // name
                     EI("JSR", "PC, RTFLOAD");
                     EI("ADD", "#6., SP");        // результат (прочитано слов) в R0
+                    break;
+
+                case "floadblk":
+                    // floadblk(name,buf,maxwords,block): как fload(), но читает
+                    // не с начала файла, а с блока `block` (512 байт = 256 слов
+                    // на блок RT-11). Нужно для файла, где подряд лежат записи
+                    // фиксированного размера (каждая — один RT-11-блок), и надо
+                    // прочитать запись №N без перечитывания всего файла.
+                    if (c.Args.Count != 4)
+                        throw new Exception($"Строка {c.Line}: floadblk(name,buf,maxwords,block) требует 4 аргумента");
+                    EC($"floadblk({ArgStr(c)}): загрузка блока файла с диска (RT-11)");
+                    GenExpr(c.Args[3]); EI("MOV", "R0, -(SP)"); // block
+                    GenExpr(c.Args[2]); EI("MOV", "R0, -(SP)"); // maxwords
+                    GenExpr(c.Args[1]); EI("MOV", "R0, -(SP)"); // buf
+                    GenExpr(c.Args[0]); EI("MOV", "R0, -(SP)"); // name
+                    EI("JSR", "PC, RTFLOADB");
+                    EI("ADD", "#8., SP");        // результат (прочитано слов) в R0
                     break;
 
                 case "fsave":

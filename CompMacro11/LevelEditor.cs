@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 
@@ -270,38 +271,77 @@ namespace CompMacro11
         // Экспорт: один int на клетку, упаковано материал+четверти.
         // Плюс отдельно позиция базы и точки спауна — тем же массивом,
         // последними тремя записями, чтобы не городить второй экспорт.
+        // Максимумы для переменных по длине частей уровня — структура
+        // требует фиксированного размера поля, поэтому резервируем с
+        // запасом и отдельно храним, сколько реально использовано.
+        public const int MaxSpawns = 4;
+        public const int MaxPlayerSpawns = 2;
+        public const int MaxBonus = 20;
+
+        // Объявление типа struct Level — поля СТРОГО по порядку, что и
+        // значения в ExportC(). Вызывается один раз на программу, не на
+        // каждый уровень — сам уровень после этого просто struct Level.
+        public static string ExportStructDecl()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("struct Level {");
+            sb.AppendLine($"    int cells[{Size * Size}];");
+            sb.AppendLine("    int levelBase;");
+            sb.AppendLine("    int spawnCount;");
+            sb.AppendLine($"    int spawns[{MaxSpawns}];");
+            sb.AppendLine("    int playerSpawnCount;");
+            sb.AppendLine($"    int playerSpawns[{MaxPlayerSpawns}];");
+            sb.AppendLine("    int bonusCount;");
+            sb.AppendLine($"    int bonusSlots[{MaxBonus}];");
+            sb.AppendLine("    int totalTanks;");
+            sb.AppendLine("    int tankBasic;");
+            sb.AppendLine("    int tankFast;");
+            sb.AppendLine("    int tankArmor;");
+            sb.AppendLine("    int tankHeavy;");
+            sb.AppendLine("    int maxOnScreen;");
+            sb.AppendLine("    int playerLives;");
+            sb.AppendLine("};");
+            return sb.ToString();
+        }
+
         public string ExportC()
         {
+            var vals = new List<int>();
+            for (int y = 0; y < Size; y++)
+                for (int x = 0; x < Size; x++)
+                    vals.Add(Pack(x, y));
+            vals.Add(BaseX * 16 + BaseY);
+
+            vals.Add(Math.Min(SpawnPoints.Count, MaxSpawns));
+            for (int i = 0; i < MaxSpawns; i++)
+                vals.Add(i < SpawnPoints.Count ? SpawnPoints[i].X * 16 + SpawnPoints[i].Y : 0);
+
+            vals.Add(Math.Min(PlayerSpawnPoints.Count, MaxPlayerSpawns));
+            for (int i = 0; i < MaxPlayerSpawns; i++)
+                vals.Add(i < PlayerSpawnPoints.Count ? PlayerSpawnPoints[i].X * 16 + PlayerSpawnPoints[i].Y : 0);
+
+            vals.Add(Math.Min(BonusSlots.Count, MaxBonus));
+            for (int i = 0; i < MaxBonus; i++)
+                vals.Add(i < BonusSlots.Count ? BonusSlots[i] : 0);
+
+            vals.Add(TotalTanks); vals.Add(TankBasic); vals.Add(TankFast);
+            vals.Add(TankArmor); vals.Add(TankHeavy); vals.Add(MaxOnScreen); vals.Add(PlayerLives);
+
             var sb = new StringBuilder();
             sb.AppendLine($"// {Name}  {Size}x{Size}, кирпич — по четвертям (как в Battle City)");
             sb.AppendLine($"// формат клетки: старший нибл = материал(0..5), младший = четверти(TL=1,TR=2,BL=4,BR=8)");
-            sb.AppendLine($"// далее: база(x*16+y), число+точки спауна врагов, число+точки спауна игрока,");
-            sb.AppendLine($"// число+номера бонусных танков (по очереди появления), затем 7 настроек:");
-            sb.AppendLine($"// всего танков, базовых, быстрых, бронированных, тяжёлых, макс.на экране, жизней");
-            int n = Size * Size + 1
-                  + 1 + SpawnPoints.Count
-                  + 1 + PlayerSpawnPoints.Count
-                  + 1 + BonusSlots.Count
-                  + 7;
-            sb.AppendLine($"int {Name}[{n}] = {{");
-            for (int y = 0; y < Size; y++)
+            sb.AppendLine($"// порядок значений соответствует struct Level (объявляется автоматически)");
+            if (SpawnPoints.Count > MaxSpawns) sb.AppendLine($"// ВНИМАНИЕ: точек спауна врагов {SpawnPoints.Count}, влезло только {MaxSpawns}");
+            if (PlayerSpawnPoints.Count > MaxPlayerSpawns) sb.AppendLine($"// ВНИМАНИЕ: точек спауна игрока {PlayerSpawnPoints.Count}, влезло только {MaxPlayerSpawns}");
+            if (BonusSlots.Count > MaxBonus) sb.AppendLine($"// ВНИМАНИЕ: бонусных танков {BonusSlots.Count}, влезло только {MaxBonus}");
+            sb.AppendLine($"struct Level {Name} = {{");
+            for (int i = 0; i < vals.Count; i += 10)
             {
                 sb.Append("    ");
-                for (int x = 0; x < Size; x++)
-                    sb.Append(Pack(x, y) + ", ");
+                for (int j = i; j < Math.Min(i + 10, vals.Count); j++)
+                    sb.Append(vals[j] + (j < vals.Count - 1 ? ", " : ""));
                 sb.AppendLine();
             }
-            sb.AppendLine($"    {BaseX * 16 + BaseY},   // база: x*16+y");
-            sb.Append($"    {SpawnPoints.Count}");
-            foreach (var p in SpawnPoints) sb.Append(", " + (p.X * 16 + p.Y));
-            sb.AppendLine(",   // спаун врагов");
-            sb.Append($"    {PlayerSpawnPoints.Count}");
-            foreach (var p in PlayerSpawnPoints) sb.Append(", " + (p.X * 16 + p.Y));
-            sb.AppendLine(",   // спаун игрока");
-            sb.Append($"    {BonusSlots.Count}");
-            foreach (var v in BonusSlots) sb.Append(", " + v);
-            sb.AppendLine(",   // номера бонусных танков");
-            sb.AppendLine($"    {TotalTanks}, {TankBasic}, {TankFast}, {TankArmor}, {TankHeavy}, {MaxOnScreen}, {PlayerLives}");
             sb.AppendLine("};");
             return sb.ToString();
         }
@@ -398,6 +438,8 @@ namespace CompMacro11
             TBtn(top, "⧉ Копия", ref tx, C_BG3, () => DuplicateLevel(), 90, "Дублировать текущий уровень");
             TBtn(top, "🗑 Удалить", ref tx, C_BG3, () => DeleteLevel(), 90, "Удалить текущий уровень");
             TBtn(top, "✎ Имя", ref tx, C_BG3, () => RenameCurrent(), 90, "Переименовать текущий уровень");
+            TSep(top, ref tx);
+            TBtn(top, "⇩ Импорт", ref tx, C_BG3, () => ImportFromFile(), 90, "Добавить уровни из .lvl-файла (сразу в этот проект)");
             TSep(top, ref tx);
             TBtn(top, "⚙ Танки", ref tx, C_BG3, () => EditSettings(), 90, "Состав врагов, точки появления, жизни");
             TSep(top, ref tx);
@@ -855,20 +897,85 @@ namespace CompMacro11
             AutoSave();
         }
 
+        // Разбор текста файла .lvl (блоки, разделённые "---") в список
+        // уровней. Общий метод — им пользуется и обычная загрузка
+        // (TryLoad), и ручной импорт (ImportFromFile), чтобы не было
+        // двух разных копий одной и той же логики разбора.
+        static List<LevelMap> ParseLevelsText(string text)
+        {
+            var blocks = text.Split(new[] { "---" }, StringSplitOptions.RemoveEmptyEntries);
+            var list = new List<LevelMap>();
+            foreach (var b in blocks)
+                if (b.Trim().Length > 0) list.Add(LevelMap.Deserialize(b));
+            return list;
+        }
+
         void TryLoad()
         {
             if (string.IsNullOrEmpty(_levelsPath) || !File.Exists(_levelsPath)) return;
             try
             {
                 var text = File.ReadAllText(_levelsPath, Encoding.UTF8);
-                var blocks = text.Split(new[] { "---" }, StringSplitOptions.RemoveEmptyEntries);
-                var list = new List<LevelMap>();
-                foreach (var b in blocks)
-                    if (b.Trim().Length > 0) list.Add(LevelMap.Deserialize(b));
+                var list = ParseLevelsText(text);
                 if (list.Count > 0) { _levels = list; _cur = 0; }
             }
             catch { }
             RefreshThumbs(); _canvas?.Invalidate();
+        }
+
+        // Импорт уровней из ЛЮБОГО .lvl-файла (например, готового набора
+        // уровней) прямо в текущий проект — без ручной подмены файла на
+        // диске и без риска, что открытый редактор перезапишет её своим
+        // автосохранением. Работает через ту же память (_levels), что и
+        // всё остальное в редакторе, поэтому дальше всё ведёт себя как
+        // обычно: миниатюры обновляются сразу, автосохранение пишет
+        // результат в levels.lvl текущего проекта само.
+        void ImportFromFile()
+        {
+            using (var dlg = new OpenFileDialog { Filter = "Файлы уровней (*.lvl)|*.lvl|Все файлы (*.*)|*.*", Title = "Импорт уровней" })
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                List<LevelMap> imported;
+                try
+                {
+                    var text = File.ReadAllText(dlg.FileName, Encoding.UTF8);
+                    imported = ParseLevelsText(text);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Не удалось прочитать файл:\n" + ex.Message, "Импорт уровней",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                if (imported.Count == 0)
+                {
+                    MessageBox.Show(this, "В файле не найдено ни одного уровня.", "Импорт уровней",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                var existingNames = new HashSet<string>(_levels.Select(lv => lv.Name), StringComparer.OrdinalIgnoreCase);
+                int added = 0;
+                foreach (var lv in imported)
+                {
+                    string baseName = string.IsNullOrWhiteSpace(lv.Name) ? "level" : lv.Name;
+                    string name = baseName;
+                    int n = 2;
+                    while (existingNames.Contains(name)) { name = baseName + "_" + n; n++; }
+                    lv.Name = name;
+                    existingNames.Add(name);
+                    _levels.Add(lv);
+                    added++;
+                }
+                _cur = _levels.Count - 1;
+                RefreshThumbs();
+                _canvas?.Invalidate();
+                SaveNow();   // сразу на диск, не дожидаясь таймера — импорт делаем осознанно, один раз
+
+                MessageBox.Show(this, $"Импортировано уровней: {added}", "Импорт уровней",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
         }
 
         public List<LevelMap> GetLevels() => new List<LevelMap>(_levels);

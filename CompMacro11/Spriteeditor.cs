@@ -186,7 +186,7 @@ namespace CompMacro11
         static readonly Color C_BG3 = Color.FromArgb(22, 22, 22);
         static readonly Color C_TEXT = Color.FromArgb(212, 212, 212);
         static readonly Color C_GRAY = Color.FromArgb(100, 100, 100);
-        static readonly Color C_SEL = Color.FromArgb(0, 100, 180);
+        static readonly Color C_SEL = Color.FromArgb(20, 115, 230);   // ближе к настоящему акценту Photoshop (#1473E6)
         static readonly Font F_UI = new Font("Segoe UI", 9f);
         static readonly Font F_UI_B = new Font("Segoe UI", 9f, FontStyle.Bold);
         static readonly Font F_SMALL = new Font("Segoe UI", 7.5f);
@@ -204,14 +204,14 @@ namespace CompMacro11
         int _curX = -1, _curY = -1;         // текущая позиция (предпросмотр)
         bool _mirror = false;               // изюм: зеркальное рисование (симметрия H)
         bool _onion = false;                // изюм: луковичная кожа (предыдущий спрайт)
-        Button[] _toolBtns;
+        Button[] _persistToolBtns;   // постоянная панель инструментов слева
         Button _mirrorBtn, _onionBtn;
         Panel _funcBar;                 // полоса функций выбранной категории
         Button[] _catBtns;              // кнопки категорий (левый столбец)
         int _curCat = 0;
         // Категории тулбара (вертикальный столбец слева)
-        static readonly string[] CAT_NAMES = { "Файл", "Инструмент", "Помощники", "Преобразования", "Сдвиг", "Экспорт" };
-        static readonly string[] CAT_ICONS = { "📁", "✏", "✨", "⟳", "✛", "→" };
+        static readonly string[] CAT_NAMES = { "Файл", "Помощники", "Преобразования", "Сдвиг", "Экспорт" };
+        static readonly string[] CAT_ICONS = { "📁", "✨", "⟳", "✛", "→" };
 
         Action<string> _insertCode;
 
@@ -285,11 +285,13 @@ namespace CompMacro11
             Font = F_UI;
 
             // ── Полоса функций выбранной категории (Top) ──
-            _funcBar = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = C_BG2 };
-            _toolBtns = new Button[7];
+            _funcBar = new Panel { Dock = DockStyle.Left, Width = 36, BackColor = C_BG2, AutoScroll = true };
 
-            // ── Узкий столбец категорий (Left) ──
-            var catBar = new Panel { Dock = DockStyle.Left, Width = 52, BackColor = C_BG };
+            // ── Узкий столбец категорий (Left) — компактно, только
+            //   иконка, подсказка при наведении ──
+            var catBar = new Panel { Dock = DockStyle.Left, Width = 36, BackColor = C_BG, AutoScroll = true };
+            string[] CAT_SHORT = { "Файл", "Помощь", "Правка", "Сдвиг", "Экспорт" };
+            string[] CAT_FEATHER = { "folder", "help-circle", "sliders", "move", "upload" };
             _catBtns = new Button[CAT_NAMES.Length];
             for (int i = 0; i < CAT_NAMES.Length; i++)
             {
@@ -297,18 +299,20 @@ namespace CompMacro11
                 _catBtns[i] = new Button
                 {
                     Text = CAT_ICONS[i],
-                    Location = new Point(4, 6 + i * 50),
-                    Width = 44,
-                    Height = 44,
+                    Location = new Point(4, 4 + i * 30),
+                    Width = 28,
+                    Height = 26,
                     FlatStyle = FlatStyle.Flat,
                     BackColor = i == 0 ? C_SEL : C_BG3,
                     ForeColor = Color.White,
-                    Font = new Font("Segoe UI", 14f),
+                    Font = new Font("Segoe UI", 11f),
+                    TextAlign = ContentAlignment.MiddleCenter,
                     Cursor = Cursors.Hand
                 };
                 _catBtns[i].FlatAppearance.BorderSize = 0;
                 _catBtns[i].Click += (s, e) => SelectCategory(ii);
                 _tt.SetToolTip(_catBtns[i], CAT_NAMES[i]);
+                ApplyIcon(_catBtns[i], CAT_FEATHER[i], CAT_SHORT[i]);
                 catBar.Controls.Add(_catBtns[i]);
             }
 
@@ -427,6 +431,42 @@ namespace CompMacro11
             }
 
 
+            // ── Постоянная панель инструментов слева от холста —
+            //   компактно, только иконка, без подписи (как в старом
+            //   узком тулбаре Photoshop) — весь текст в подсказке.
+            int TOOL_W = 28, TOOL_H = 26, TOOL_GAP = 2;
+            var toolPanel = new Panel { Dock = DockStyle.Left, Width = TOOL_W + 8, BackColor = C_BG2, AutoScroll = true };
+            var toolTypes = new Tool[] { Tool.Pencil, Tool.Line, Tool.Rect, Tool.RectFill, Tool.Ellipse, Tool.Fill, Tool.Picker };
+            var toolIcons = new string[] { "✏", "/", "▭", "▬", "◯", "▨", "✒" };
+            var toolShort = new string[] { "Каранд", "Линия", "Прямоуг", "Залитый", "Эллипс", "Заливка", "Пипетка" };
+            var toolFeather = new string[] { "edit-2", "minus", "square", "square", "circle", "droplet", "crosshair" };
+            var toolTips = new string[] { "Карандаш", "Линия", "Прямоугольник (контур)", "Прямоугольник (заливка)", "Эллипс", "Заливка", "Пипетка (взять цвет)" };
+            _persistToolBtns = new Button[toolTypes.Length];
+            for (int i = 0; i < toolTypes.Length; i++)
+            {
+                Tool curT = toolTypes[i];
+                var tb = new Button
+                {
+                    Text = toolIcons[i],
+                    Left = 4,
+                    Top = 4 + i * (TOOL_H + TOOL_GAP),
+                    Width = TOOL_W,
+                    Height = TOOL_H,
+                    FlatStyle = FlatStyle.Flat,
+                    BackColor = C_BG3,
+                    ForeColor = Color.White,
+                    Font = new Font(F_UI.FontFamily, 11f),
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Cursor = Cursors.Hand
+                };
+                tb.FlatAppearance.BorderSize = 0;
+                tb.Click += (s, e) => SetTool(curT);
+                _fbToolTip.SetToolTip(tb, toolTips[i]);
+                ApplyIcon(tb, toolFeather[i], toolShort[i]);
+                toolPanel.Controls.Add(tb);
+                _persistToolBtns[i] = tb;
+            }
+
             // ── Левая: миниатюры ─────────────────────────────────
             var leftPanel = new Panel { Dock = DockStyle.Left, Width = 120, BackColor = C_BG3 };
             var leftHdr = new Label
@@ -462,10 +502,11 @@ namespace CompMacro11
             // Fill последний; Left-панели в порядке от центра к краю;
             // Top/Bottom первыми по доку.
             Controls.Add(wrap);       // Fill — самый последний
+            Controls.Add(toolPanel);  // Left — инструменты, ближе всего к холсту
             Controls.Add(leftPanel);  // Left — миниатюры (ближе к центру)
-            Controls.Add(catBar);     // Left — столбец категорий (крайний слева)
+            Controls.Add(catBar);     // Left — столбец категорий
             Controls.Add(bot);        // Bottom
-            Controls.Add(_funcBar);   // Top — функции выбранной категории
+            Controls.Add(_funcBar);   // Left — функции выбранной категории (была Top, верхней строки больше нет)
 
             SelectCategory(0);        // показать первую категорию
         }
@@ -610,85 +651,177 @@ namespace CompMacro11
         void BuildFuncBar()
         {
             _funcBar.Controls.Clear();
-            int x = 8;
+            int y = 8;
             switch (_curCat)
             {
                 case 0: // Файл
-                    FBtn("+ Новый", ref x, C_BG3, () => NewSprite());
-                    FBtn("⧉ Копия", ref x, C_BG3, () => DuplicateSprite(), 88, "Независимая копия текущего спрайта");
-                    FBtn("✎ Имя", ref x, C_BG3, () => RenameCurrent());
-                    FBtn("📂 Открыть", ref x, C_BG3, () => OpenFile());
-                    FBtn("🖼 Импорт", ref x, C_BG3, () => ImportImage());
-                    FBtn("💾 Сохранить", ref x, C_BG3, () => SaveFile());
-                    FBtn("✕ Удалить", ref x, Color.FromArgb(70, 25, 25), () => DeleteSprite());
+                    FBtn("+ Новый", ref y, C_BG3, () => NewSprite(), feather: "file-plus");
+                    FBtn("⧉ Копия", ref y, C_BG3, () => DuplicateSprite(), tip: "Независимая копия текущего спрайта", feather: "copy");
+                    FBtn("✎ Имя", ref y, C_BG3, () => RenameCurrent(), feather: "edit-3");
+                    FBtn("📂 Открыть", ref y, C_BG3, () => OpenFile(), feather: "folder");
+                    FBtn("🖼 Импорт", ref y, C_BG3, () => ImportImage(), feather: "image");
+                    FBtn("💾 Сохранить", ref y, C_BG3, () => SaveFile(), feather: "save");
+                    FBtn("✕ Удалить", ref y, Color.FromArgb(70, 25, 25), () => DeleteSprite(), feather: "trash-2");
                     break;
-                case 1: // Инструмент
-                    _toolBtns[0] = FBtn("✏ Карандаш", ref x, C_BG3, () => SetTool(Tool.Pencil), 96);
-                    _toolBtns[1] = FBtn("╱ Линия", ref x, C_BG3, () => SetTool(Tool.Line), 76);
-                    _toolBtns[2] = FBtn("▭ Прямоуг", ref x, C_BG3, () => SetTool(Tool.Rect), 86);
-                    _toolBtns[3] = FBtn("▬ Залитый", ref x, C_BG3, () => SetTool(Tool.RectFill), 86);
-                    _toolBtns[4] = FBtn("◯ Эллипс", ref x, C_BG3, () => SetTool(Tool.Ellipse), 84);
-                    _toolBtns[5] = FBtn("▨ Заливка", ref x, C_BG3, () => SetTool(Tool.Fill), 86);
-                    _toolBtns[6] = FBtn("✒ Пипетка", ref x, C_BG3, () => SetTool(Tool.Picker), 86);
-                    HighlightTool();
+                case 1: // Помощники
+                    _mirrorBtn = FBtn("⊥ Зеркало", ref y, _mirror ? C_SEL : C_BG3, () => ToggleMirror(), feather: "repeat");
+                    _onionBtn = FBtn("◓ Калька", ref y, _onion ? C_SEL : C_BG3, () => ToggleOnion(), feather: "layers");
                     break;
-                case 2: // Помощники
-                    _mirrorBtn = FBtn("⊥ Зеркало", ref x, _mirror ? C_SEL : C_BG3, () => ToggleMirror(), 96);
-                    _onionBtn = FBtn("◓ Калька", ref x, _onion ? C_SEL : C_BG3, () => ToggleOnion(), 92);
+                case 2: // Преобразования
+                    FBtn("↶ Отмена", ref y, C_BG3, () => Undo(), feather: "corner-up-left");
+                    FBtn("🗑 Очистить", ref y, C_BG3, () => EditClear(), feather: "x-square");
+                    FBtn("▦ Залить", ref y, C_BG3, () => EditFill(), feather: "droplet");
+                    FBtn("◐ Инверт", ref y, C_BG3, () => EditInvert(), tip: "Обратить цвета всех пикселей", feather: "refresh-cw");
+                    FBtn("⟳ Поворот", ref y, C_BG3, () => EditRotate(), tip: "Повернуть спрайт на 90°", feather: "rotate-cw");
+                    FBtn("▣ Контур", ref y, C_BG3, () => EditOutline(), feather: "square");
+                    FBtn("⇆ Симметрия", ref y, C_BG3, () => EditSymmetry(), feather: "git-merge");
+                    FBtn("↔ ФлипГ", ref y, C_BG3, () => EditFlipH(), tip: "Отразить по горизонтали");
+                    FBtn("↕ ФлипВ", ref y, C_BG3, () => EditFlipV(), tip: "Отразить по вертикали");
                     break;
-                case 3: // Преобразования
-                    FBtn("↶ Отмена", ref x, C_BG3, () => Undo(), 86);
-                    FBtn("🗑 Очистить", ref x, C_BG3, () => EditClear(), 96);
-                    FBtn("▦ Залить", ref x, C_BG3, () => EditFill(), 84);
-                    FBtn("◐ Инверт", ref x, C_BG3, () => EditInvert(), 84, "Обратить цвета всех пикселей");
-                    FBtn("⟳ Поворот", ref x, C_BG3, () => EditRotate(), 92, "Повернуть спрайт на 90°");
-                    FBtn("▣ Контур", ref x, C_BG3, () => EditOutline(), 84);
-                    FBtn("⇆ Симметрия", ref x, C_BG3, () => EditSymmetry(), 104);
-                    FBtn("↔ ФлипГ", ref x, C_BG3, () => EditFlipH(), 78, "Отразить по горизонтали");
-                    FBtn("↕ ФлипВ", ref x, C_BG3, () => EditFlipV(), 78, "Отразить по вертикали");
+                case 3: // Сдвиг
+                    FBtn("← Влево", ref y, C_BG3, () => EditShift(-1, 0), feather: "arrow-left");
+                    FBtn("→ Вправо", ref y, C_BG3, () => EditShift(1, 0), feather: "arrow-right");
+                    FBtn("↑ Вверх", ref y, C_BG3, () => EditShift(0, -1), feather: "arrow-up");
+                    FBtn("↓ Вниз", ref y, C_BG3, () => EditShift(0, 1), feather: "arrow-down");
                     break;
-                case 4: // Сдвиг
-                    FBtn("← Влево", ref x, C_BG3, () => EditShift(-1, 0), 78);
-                    FBtn("→ Вправо", ref x, C_BG3, () => EditShift(1, 0), 84);
-                    FBtn("↑ Вверх", ref x, C_BG3, () => EditShift(0, -1), 80);
-                    FBtn("↓ Вниз", ref x, C_BG3, () => EditShift(0, 1), 74);
-                    break;
-                case 5: // Экспорт
-                    FBtn("→ В код", ref x, Color.FromArgb(0, 80, 50), () => ExportCode(), 100, "Вставить комментарий // sprite: — данные подставит компилятор");
-                    FBtn("💾 На диск", ref x, Color.FromArgb(0, 60, 90), () => ExportToDisk(), 110);
+                case 4: // Экспорт
+                    FBtn("→ В код", ref y, Color.FromArgb(0, 80, 50), () => ExportCode(), tip: "Вставить комментарий // sprite: — данные подставит компилятор", feather: "code");
+                    FBtn("💾 На диск", ref y, Color.FromArgb(0, 60, 90), () => ExportToDisk(), feather: "hard-drive");
                     break;
             }
         }
 
         // Кнопка в полосе функций (выровнена по вертикали в _funcBar).
-        Button FBtn(string t, ref int x, Color bg, Action click, int w = 82, string tip = null)
+        // ── Загрузка настоящих иконок (Feather Icons, feathericons.com,
+        //   MIT) из папки Icons рядом с .exe. Файла нет — вернёт null,
+        //   вызывающий код сам решает, что показать вместо картинки
+        //   (сейчас — тот же текст с юникод-символом, что и был).
+        static Dictionary<string, Image> _iconCache = new Dictionary<string, Image>();
+        static bool _iconsFolderChecked = false;
+
+        // При первом обращении создаёт папку Icons и кладёт туда
+        // README.txt с точным списком нужных файлов — чтобы это было
+        // видно в самом проекте, а не только в переписке. Ничего не
+        // перезаписывает, если папка уже есть.
+        static void EnsureIconsFolder()
         {
+            if (_iconsFolderChecked) return;
+            _iconsFolderChecked = true;
+            try
+            {
+                string dir = Path.Combine(Application.StartupPath, "Icons");
+                bool isNew = !Directory.Exists(dir);
+                Directory.CreateDirectory(dir);
+                string readme = Path.Combine(dir, "README.txt");
+                if (isNew || !File.Exists(readme))
+                    File.WriteAllText(readme, ICONS_README, Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        const string ICONS_README =
+@"Иконки для редактора спрайтов
+==============================
+
+Пока в этой папке нет файлов — кнопки показывают простой символ
+текстом. Если положить сюда PNG с именами ниже, редактор сам их
+подхватит при следующем запуске: картинка сверху, подпись снизу.
+
+Источник: https://feathericons.com — свободный набор, лицензия MIT.
+Каждую иконку можно скачать прямо с сайта (клик по значку).
+Можно взять и любой другой набор в похожем стиле (тонкая
+монохромная линия) — главное, чтобы имена файлов совпадали.
+
+Нужные файлы (имя.png):
+
+Категории:
+  folder.png  help-circle.png  sliders.png  move.png  upload.png
+
+Инструменты:
+  edit-2.png  minus.png  square.png  circle.png  droplet.png  crosshair.png
+
+Функции:
+  file-plus.png  copy.png  edit-3.png  image.png  save.png  trash-2.png
+  repeat.png  layers.png  corner-up-left.png  x-square.png
+  refresh-cw.png  rotate-cw.png  git-merge.png
+  arrow-left.png  arrow-right.png  arrow-up.png  arrow-down.png
+  code.png  hard-drive.png
+
+Для ""ФлипГ"" и ""ФлипВ"" подходящей иконки в Feather нет — эти
+две кнопки так и останутся с текстовым символом, это нормально.
+
+Файла не хватает или имя не совпало — ничего не ломается, просто
+у этой конкретной кнопки останется текстовый символ вместо картинки.
+";
+
+        static Image LoadIcon(string name, int size = 22)
+        {
+            EnsureIconsFolder();
+            if (_iconCache.TryGetValue(name, out var cached)) return cached;
+            Image img = null;
+            try
+            {
+                string path = Path.Combine(Application.StartupPath, "Icons", name + ".png");
+                if (File.Exists(path))
+                    img = new Bitmap(Image.FromFile(path), size, size);
+            }
+            catch { img = null; }
+            _iconCache[name] = img;
+            return img;
+        }
+
+        // Применить иконку к кнопке, если файл найден: только картинка,
+        // без подписи (компактный Photoshop-стиль) — весь текст,
+        // который был бы подписью, остаётся в подсказке по наведению.
+        // Если файла нет — остаётся текстовый символ, кнопка не ломается.
+        static void ApplyIcon(Button b, string featherName, string label)
+        {
+            var img = LoadIcon(featherName, 18);
+            if (img == null) return;
+            b.Image = img;
+            b.ImageAlign = ContentAlignment.MiddleCenter;
+            b.Text = "";
+        }
+
+        Button FBtn(string t, ref int y, Color bg, Action click, int w = 82, string tip = null, string feather = null)
+        {
+            // t вида "✏ Текст" — показываем только иконку (без
+            // подписи снизу — по образцу компактного Photoshop),
+            // весь текст уходит в подсказку по наведению.
+            string icon = t;
+            string label = "";
+            int sp = t.IndexOf(' ');
+            if (sp > 0) { icon = t.Substring(0, sp); label = t.Substring(sp + 1); }
             var b = new Button
             {
-                Text = t,
-                Location = new Point(x, 5),
-                Width = w,
-                Height = 30,
+                Text = icon,
+                Left = 4,
+                Top = y,
+                Width = 28,
+                Height = 26,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = bg,
                 ForeColor = Color.White,
-                Font = F_UI,
+                Font = new Font(F_UI.FontFamily, 11f),
+                TextAlign = ContentAlignment.MiddleCenter,
                 Cursor = Cursors.Hand
             };
             b.FlatAppearance.BorderSize = 0;
             b.Click += (s, e) => click();
-            _funcBar.Controls.Add(b); x += w + 4;
-            if (tip != null) _fbToolTip.SetToolTip(b, tip);
+            _funcBar.Controls.Add(b); y += 29;
+            _fbToolTip.SetToolTip(b, tip ?? (label.Length > 0 ? label : icon));
+            if (feather != null) ApplyIcon(b, feather, label.Length > 0 ? label : icon);
             return b;
         }
 
-        // Подсветить активный инструмент (если категория Инструмент открыта).
+        // Подсветить активный инструмент на постоянной панели слева —
+        // вкладки «Инструмент» больше нет, всё здесь.
         void HighlightTool()
         {
-            if (_curCat != 1 || _toolBtns == null) return;
-            for (int i = 0; i < _toolBtns.Length; i++)
-                if (_toolBtns[i] != null)
-                    _toolBtns[i].BackColor = ((int)_tool == i) ? C_SEL : C_BG3;
+            if (_persistToolBtns == null) return;
+            for (int i = 0; i < _persistToolBtns.Length; i++)
+                if (_persistToolBtns[i] != null)
+                    _persistToolBtns[i].BackColor = ((int)_tool == i) ? C_SEL : C_BG3;
         }
 
         // ── Выбор инструмента ──

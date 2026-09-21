@@ -151,6 +151,7 @@ namespace CompMacro11
         private SpriteEditor _spriteEditor;
         private ToolTip _toolTip = new ToolTip();
         private LevelEditor _levelEditor;
+        private ImageConverter _imageConverter;
         private string _emulatorPath = "";   // путь к UKNCBTL.exe
         private McProject _project = null;   // текущий проект
         private string _projectSpritesPath = null;
@@ -316,6 +317,11 @@ namespace CompMacro11
                 menu.Items.Add(miBattleCity);
                 // сюда позже добавятся редакторы уровней других игр —
                 // тем же способом, каждая своим пунктом меню.
+
+                menu.Items.Add(new ToolStripSeparator());
+                var miImgConv = new ToolStripMenuItem("🖼 Картинка → УКНЦ (тест)");
+                miImgConv.Click += (s2, e2) => OpenImageConverter();
+                menu.Items.Add(miImgConv);
 
                 menu.Show(btnGames, new System.Drawing.Point(0, btnGames.Height));
             };
@@ -780,6 +786,38 @@ namespace CompMacro11
                     HelpT(r, "  нужно им самим. Локальная структура зануляется целиком\n", C_TEXT);
                     HelpT(r, "  при входе в блок, где объявлена (если нет инициализатора).\n", C_TEXT);
 
+                    HelpT(r, "\n═══ struct Level — уровни из Level Editor ═══════════════\n", Color.FromArgb(78, 201, 176));
+                    HelpT(r, "\n  Комментарий \"// level: Имя\" в коде — та же схема, что и\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "  \"// sprite: Имя\" для спрайтов. При сборке компилятор сам\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "  подставляет тип struct Level и сам уровень целиком —\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "  ничего этого писать руками не нужно:\n\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "    // level: bc01\n\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    int main() {\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        struct Level cur;\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        cur = bc01;         // копия уровня \"bc01\"\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "        int m = cur.cells[0] >> 4;   // материал клетки 0\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "    }\n\n", Color.FromArgb(181, 206, 168));
+                    HelpT(r, "  \"Имя\" — имя уровня в Level Editor (список слева в редак-\n", C_TEXT);
+                    HelpT(r, "  торе уровней). Если такого имени нет — статус-бар покажет\n", C_TEXT);
+                    HelpT(r, "  предупреждение при сборке, а не тихую ошибку.\n\n", C_TEXT);
+                    HelpT(r, "  Поля struct Level (в этом порядке):\n\n", Color.FromArgb(86, 156, 214));
+                    HelpT(r, "    cells[169]         — 13x13 клеток, старший нибл значения\n", C_TEXT);
+                    HelpT(r, "                         = материал (0 пусто,1 кирпич,2 сталь,\n", C_TEXT);
+                    HelpT(r, "                         3 вода,4 кусты,5 лёд), младший нибл =\n", C_TEXT);
+                    HelpT(r, "                         занятые четверти клетки (биты 1/2/4/8)\n", C_TEXT);
+                    HelpT(r, "    levelBase          — клетка базы, X*16+Y\n", C_TEXT);
+                    HelpT(r, "    spawnCount, spawns[4]           — точки спауна врагов\n", C_TEXT);
+                    HelpT(r, "    playerSpawnCount, playerSpawns[2] — точки спауна игроков\n", C_TEXT);
+                    HelpT(r, "    bonusCount, bonusSlots[20]      — номера врагов с бонусом\n", C_TEXT);
+                    HelpT(r, "    totalTanks, tankBasic, tankFast, tankArmor, tankHeavy\n", C_TEXT);
+                    HelpT(r, "    maxOnScreen, playerLives\n\n", C_TEXT);
+                    HelpT(r, "  Каждый struct Level — 206 слов (412 байт). Несколько\n", C_TEXT);
+                    HelpT(r, "  \"// level:\" сразу — все встраиваются в код одновременно\n", C_TEXT);
+                    HelpT(r, "  (годится для нескольких уровней, не для всех сразу).\n", C_TEXT);
+                    HelpT(r, "  Чтобы держать в памяти только один уровень из многих —\n", C_TEXT);
+                    HelpT(r, "  грузи его целиком с диска функциями fload/floadblk (тема\n", C_TEXT);
+                    HelpT(r, "  «Встроенные функции»), а не встраивай все // level: сразу.\n", C_TEXT);
+
                     break;
                 case 2:
                     HelpT(r, "\n═══ ВСТРОЕННЫЕ ФУНКЦИИ ══════════════════════════════════\n", Color.FromArgb(86, 156, 214));
@@ -789,6 +827,11 @@ namespace CompMacro11
                     HelpFn(r, "getkey", "", "прочитать клавишу → код или 0 (неблокирующее)");
                     HelpFn(r, "sprite", "x,y,w,h,ptr", "спрайт из массива данных (MOV — перезапись)");
                     HelpFn(r, "spriteOr", "x,y,w,h,ptr", "спрайт через BIS (OR с экраном — прозрачность)");
+
+                    HelpT(r, "\n  Диск (RT-11, устройство по умолчанию MZ:):\n", Color.FromArgb(86, 156, 214));
+                    HelpFn(r, "fload", "name,buf,maxwords", "загрузить файл целиком в buf → слов прочитано, или -1");
+                    HelpFn(r, "floadblk", "name,buf,maxwords,block", "как fload, но с блока `block` (512 байт = 256 слов);\n                    для файла из подряд лежащих записей одного размера — например,\n                    нескольких struct Level, каждый ровно по одному блоку");
+                    HelpFn(r, "fsave", "name,buf,words", "записать words слов из buf в файл → 0 успех / -1 ошибка");
 
                     break;
                 case 3:
@@ -1267,6 +1310,16 @@ namespace CompMacro11
                 _levelEditor.Show(this);
         }
 
+        private void OpenImageConverter()
+        {
+            if (_imageConverter == null || _imageConverter.IsDisposed)
+                _imageConverter = new ImageConverter();
+            if (_imageConverter.Visible)
+                _imageConverter.BringToFront();
+            else
+                _imageConverter.Show(this);
+        }
+
         private void UpdateSpritesPath()
         {
             if (_project != null)
@@ -1652,6 +1705,11 @@ namespace CompMacro11
                 SetStatus($"⚠  Уровни не найдены: {string.Join(", ", missing)}", true);
 
             var sb = new StringBuilder();
+            bool anyLevel = false;
+            foreach (var lv in levels)
+                if (mentioned.Contains(lv.Name)) { anyLevel = true; break; }
+            if (anyLevel)
+                sb.AppendLine(LevelMap.ExportStructDecl());   // тип struct Level — один раз, до самих уровней
             foreach (var lv in levels)
                 if (mentioned.Contains(lv.Name))
                     sb.AppendLine(lv.ExportC());
