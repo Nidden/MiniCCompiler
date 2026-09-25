@@ -285,7 +285,10 @@ namespace CompMacro11
         {
             var sb = new StringBuilder();
             sb.AppendLine("struct Level {");
-            sb.AppendLine($"    int cells[{Size * Size}];");
+            // Клетка — байт: материал 0..5 в старшем нибле, четверти в
+            // младшем, больше 0137 не бывает. Поле занимает 169 байт
+            // вместо 169 слов — на уровень 122 слова вместо 206.
+            sb.AppendLine($"    byte cells[{Size * Size}];");
             sb.AppendLine("    int levelBase;");
             sb.AppendLine("    int spawnCount;");
             sb.AppendLine($"    int spawns[{MaxSpawns}];");
@@ -304,7 +307,53 @@ namespace CompMacro11
             return sb.ToString();
         }
 
-        public string ExportC()
+        public string ExportC() { return ExportC(Name); }
+
+        // varName — имя переменной в коде. Отличается от Name, когда имя
+        // уровня в редакторе не годится в идентификаторы (кириллица,
+        // пробелы, цифра первой): человеческое имя остаётся в комментарии.
+        public string ExportC(string varName)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"// {Name}  {Size}x{Size}, кирпич — по четвертям (как в Battle City)");
+            sb.AppendLine($"// формат клетки: старший нибл = материал(0..5), младший = четверти(TL=1,TR=2,BL=4,BR=8)");
+            sb.AppendLine($"// порядок значений строго соответствует полям struct Level");
+            sb.Append(Warnings());
+            sb.AppendLine($"struct Level {varName} = {{");
+            sb.Append(ValueLines("    "));
+            sb.AppendLine("};");
+            return sb.ToString();
+        }
+
+        // Предупреждения о том, что не влезло в фиксированные поля.
+        public string Warnings()
+        {
+            var sb = new StringBuilder();
+            if (SpawnPoints.Count > MaxSpawns) sb.AppendLine($"// ВНИМАНИЕ: точек спауна врагов {SpawnPoints.Count}, влезло только {MaxSpawns}");
+            if (PlayerSpawnPoints.Count > MaxPlayerSpawns) sb.AppendLine($"// ВНИМАНИЕ: точек спауна игрока {PlayerSpawnPoints.Count}, влезло только {MaxPlayerSpawns}");
+            if (BonusSlots.Count > MaxBonus) sb.AppendLine($"// ВНИМАНИЕ: бонусных танков {BonusSlots.Count}, влезло только {MaxBonus}");
+            return sb.ToString();
+        }
+
+        // Значения уровня строками по 10, с заданным отступом. Последняя
+        // строка без запятой — вызывающий сам решает, нужна ли она после
+        // закрывающей скобки (элемент массива структур) или нет.
+        public string ValueLines(string indent)
+        {
+            var vals = ExportValues();
+            var sb = new StringBuilder();
+            for (int i = 0; i < vals.Count; i += 10)
+            {
+                sb.Append(indent);
+                for (int j = i; j < Math.Min(i + 10, vals.Count); j++)
+                    sb.Append(vals[j] + (j < vals.Count - 1 ? ", " : ""));
+                sb.AppendLine();
+            }
+            return sb.ToString();
+        }
+
+        // Значения уровня в порядке полей struct Level.
+        public List<int> ExportValues()
         {
             var vals = new List<int>();
             for (int y = 0; y < Size; y++)
@@ -326,24 +375,7 @@ namespace CompMacro11
 
             vals.Add(TotalTanks); vals.Add(TankBasic); vals.Add(TankFast);
             vals.Add(TankArmor); vals.Add(TankHeavy); vals.Add(MaxOnScreen); vals.Add(PlayerLives);
-
-            var sb = new StringBuilder();
-            sb.AppendLine($"// {Name}  {Size}x{Size}, кирпич — по четвертям (как в Battle City)");
-            sb.AppendLine($"// формат клетки: старший нибл = материал(0..5), младший = четверти(TL=1,TR=2,BL=4,BR=8)");
-            sb.AppendLine($"// порядок значений соответствует struct Level (объявляется автоматически)");
-            if (SpawnPoints.Count > MaxSpawns) sb.AppendLine($"// ВНИМАНИЕ: точек спауна врагов {SpawnPoints.Count}, влезло только {MaxSpawns}");
-            if (PlayerSpawnPoints.Count > MaxPlayerSpawns) sb.AppendLine($"// ВНИМАНИЕ: точек спауна игрока {PlayerSpawnPoints.Count}, влезло только {MaxPlayerSpawns}");
-            if (BonusSlots.Count > MaxBonus) sb.AppendLine($"// ВНИМАНИЕ: бонусных танков {BonusSlots.Count}, влезло только {MaxBonus}");
-            sb.AppendLine($"struct Level {Name} = {{");
-            for (int i = 0; i < vals.Count; i += 10)
-            {
-                sb.Append("    ");
-                for (int j = i; j < Math.Min(i + 10, vals.Count); j++)
-                    sb.Append(vals[j] + (j < vals.Count - 1 ? ", " : ""));
-                sb.AppendLine();
-            }
-            sb.AppendLine("};");
-            return sb.ToString();
+            return vals;
         }
     }
 
@@ -446,7 +478,7 @@ namespace CompMacro11
             TBtn(top, "🔄 Картинки", ref tx, C_BG3, () => RefreshTiles(), 110, "Перечитать папку Tiles с диска");
             TBtn(top, "📁 Папка", ref tx, C_BG3, () => OpenTilesFolder(), 90, "Открыть папку Tiles в проводнике");
             TSep(top, ref tx);
-            TBtn(top, "→ В код", ref tx, Color.FromArgb(0, 80, 50), () => ExportCode(), 90, "Вставить комментарий // level: в код — данные подставит компилятор");
+            TBtn(top, "→ В код", ref tx, Color.FromArgb(0, 80, 50), () => ExportCode(), 90, "Вставить в код массив levels[], currentLevel и getLevel(num)");
 
             _palPanel = new Panel { Dock = DockStyle.Left, Width = 130, BackColor = C_BG2 };
             Controls.Add(_palPanel);
@@ -805,11 +837,66 @@ namespace CompMacro11
             }
         }
 
+        // Метки начала и конца вставленного блока: по ним Form1 вырезает
+        // предыдущую вставку, чтобы повторное нажатие «→ В код» заменяло
+        // блок, а не добавляло второй экземпляр тех же данных.
+        public const string MarkBegin = "// ─── УРОВНИ: начало ───";
+        public const string MarkEnd = "// ─── УРОВНИ: конец ───";
+
+        // Вставка уровней в программу: массив данных, текущий уровень и один
+        // метод getLevel(num).
+        //
+        // Уровни лежат одним массивом структур, а getLevel() — это одно
+        // копирование по индексу. Отдельная переменная на уровень и цепочка
+        // if (num == 0) ... if (num == 34) означали бы 35 копий одного и того
+        // же кода и невозможность обратиться к уровню вычисленным номером.
         void ExportCode()
         {
+            if (_levels.Count == 0) return;
+
             var sb = new StringBuilder();
-            sb.AppendLine("// ── Уровень (данные подставляются автоматически при компиляции) ──");
-            sb.AppendLine($"// level: {_levels[_cur].Name}");
+            sb.AppendLine(MarkBegin + " (вставлено редактором уровней, правится там же)");
+            sb.AppendLine("//   levels[]     — данные всех уровней проекта");
+            sb.AppendLine("//   levelCount   — сколько их");
+            sb.AppendLine("//   currentLevel — уровень, загруженный последним");
+            sb.AppendLine("//   getLevel(num) — скопировать уровень num в currentLevel,");
+            sb.AppendLine("//                   1 — получилось, 0 — нет такого номера");
+            sb.AppendLine("//");
+            sb.AppendLine("//   Клетка поля: старший нибл — материал (0..5),");
+            sb.AppendLine("//   младший — четверти кирпича (TL=1, TR=2, BL=4, BR=8).");
+            sb.AppendLine("//   База и точки спауна упакованы как X*16 + Y.");
+            sb.AppendLine();
+            sb.Append(LevelMap.ExportStructDecl());
+            sb.AppendLine();
+            sb.AppendLine($"int levelCount = {_levels.Count};");
+            sb.AppendLine();
+            sb.AppendLine("// Уровень, загруженный последним вызовом getLevel().");
+            sb.AppendLine("struct Level currentLevel;");
+            sb.AppendLine();
+            sb.AppendLine($"struct Level levels[{_levels.Count}] = {{");
+            for (int i = 0; i < _levels.Count; i++)
+            {
+                var lv = _levels[i];
+                sb.AppendLine($"    // {i} — {lv.Name}");
+                string warn = lv.Warnings();
+                if (warn.Length > 0)
+                    foreach (var w in warn.TrimEnd('\r', '\n').Split('\n'))
+                        sb.AppendLine("    " + w.TrimEnd('\r'));
+                sb.AppendLine("    {");
+                sb.Append(lv.ValueLines("        "));
+                sb.AppendLine(i + 1 < _levels.Count ? "    }," : "    }");
+            }
+            sb.AppendLine("};");
+            sb.AppendLine();
+            sb.AppendLine("// Загрузить уровень номер num (с нуля) в currentLevel.");
+            sb.AppendLine("int getLevel(int num) {");
+            sb.AppendLine("    if (num < 0) { return 0; }");
+            sb.AppendLine("    if (num >= levelCount) { return 0; }");
+            sb.AppendLine("    currentLevel = levels[num];");
+            sb.AppendLine("    return 1;");
+            sb.AppendLine("}");
+            sb.AppendLine(MarkEnd);
+
             var code = sb.ToString();
             if (_insertCode != null) _insertCode(code);
         }

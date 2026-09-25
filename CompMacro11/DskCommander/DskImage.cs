@@ -28,10 +28,53 @@ namespace DskCommander
         private const int SEG0 = 6;         // первый блок каталога
         private const string R50 = " ABCDEFGHIJKLMNOPQRSTUVWXYZ$.%0123456789";
 
+        // Окно тома внутри файла: для .dsk — весь файл, для раздела
+        // винчестера УКНЦ — кусок с нужного блока. Inv — образ записан
+        // инверсно (все байты дополнены до 0xFF), тогда читаем и пишем
+        // с инверсией, а вся остальная логика её не замечает.
+        private long _off;
+        private bool _inv;
+
         public DskImage(string path)
         {
             Path = path;
-            _data = File.ReadAllBytes(path);
+            _off = 0; _inv = false;
+            using (var df = DiskFile.Open(path))
+            {
+                if (df.Length > 128L * 1024 * 1024)
+                    throw new IOException("Образ больше 128 МБ — откройте его как винчестер (по разделам).");
+                _data = new byte[df.Length];
+                df.Read(0, _data, 0, _data.Length);
+            }
+        }
+
+        public DskImage(string path, int startBlock, int blockCount, bool inverted)
+        {
+            Path = path;
+            _off = (long)startBlock * 512;
+            _inv = inverted;
+            using (var df = DiskFile.Open(path))
+            {
+                long avail = df.Length - _off;
+                if (avail < 0) avail = 0;
+                int len = (int)Math.Min((long)blockCount * 512, avail);
+                _data = new byte[len];
+                if (len > 0) df.Read(_off, _data, 0, len);
+            }
+            if (_inv) for (int i = 0; i < _data.Length; i++) _data[i] = (byte)~_data[i];
+        }
+
+        // запись тома обратно в файл (с учётом смещения и инверсии)
+        private void Save()
+        {
+            byte[] buf = _data;
+            if (_inv)
+            {
+                buf = new byte[_data.Length];
+                for (int i = 0; i < _data.Length; i++) buf[i] = (byte)~_data[i];
+            }
+            using (var df = DiskFile.Open(Path))
+                df.Write(_off, buf, 0, buf.Length);
         }
 
         // ── низкоуровневый доступ к словам ──
@@ -81,6 +124,7 @@ namespace DskCommander
         {
             var list = new List<Entry>();
             int segBase = SEG0 * 512;
+            if (_data.Length < segBase + 1024) return list;   // том короче каталога
             int startBlk = GetW(segBase + 8);       // слово 4 = start_blk данных
             int off = segBase + 10;                  // после 5 слов заголовка
             int blk = startBlk;
@@ -164,7 +208,7 @@ namespace DskCommander
                 rebuilt.Add(new Entry { Empty = true, Blocks = free, StartBlock = pos });
             }
             WriteDir(rebuilt);
-            File.WriteAllBytes(Path, _data);
+            Save();
             return moved;
         }
 
@@ -274,7 +318,7 @@ namespace DskCommander
             Array.Copy(bytes, 0, _data, dataOff, bytes.Length);
 
             WriteDir(rebuilt);
-            File.WriteAllBytes(Path, _data);
+            Save();
             return true;
         }
 
@@ -286,7 +330,7 @@ namespace DskCommander
             foreach (var e in dir)
                 if (!e.Empty && string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))
                 { e.Empty = true; e.Name = null; found = true; }
-            if (found) { WriteDir(dir); File.WriteAllBytes(Path, _data); }
+            if (found) { WriteDir(dir); Save(); }
             return found;
         }
 
@@ -304,7 +348,7 @@ namespace DskCommander
             foreach (var e in dir)
                 if (!e.Empty && string.Equals(e.Name, oldName, StringComparison.OrdinalIgnoreCase))
                 { e.Name = newName; found = true; }
-            if (found) { WriteDir(dir); File.WriteAllBytes(Path, _data); }
+            if (found) { WriteDir(dir); Save(); }
             return found;
         }
 

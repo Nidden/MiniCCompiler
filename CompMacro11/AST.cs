@@ -7,6 +7,8 @@ namespace CompMacro11
     {
         public bool IsVoid;
         public bool IsBool;  // bool — хранится как int (0/1), но выводится как bool
+        public bool IsByte;  // byte — 0..255; массив байт занимает по байту на элемент,
+                             // скаляр лежит в слове, но при записи обрезается до 0..255
         public bool IsArray;
         public bool IsStruct;       // структура (см. StructDeclNode)
         public string StructName;   // имя типа структуры, если IsStruct
@@ -29,8 +31,9 @@ namespace CompMacro11
         {
             if (IsVoid) return "void";
             if (IsBool && !IsArray) return "bool";
+            if (IsByte && !IsArray) return "byte";
             if (!IsArray) return "int";
-            var sb = new System.Text.StringBuilder(IsBool ? "bool" : "int");
+            var sb = new System.Text.StringBuilder(IsBool ? "bool" : IsByte ? "byte" : "int");
             foreach (var d in Dims) sb.Append(d < 0 ? "[]" : $"[{d}]");
             return sb.ToString();
         }

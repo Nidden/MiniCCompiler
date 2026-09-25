@@ -52,6 +52,14 @@ namespace CompMacro11
         private Stack<string> _breakLbls = new Stack<string>();
         private Stack<string> _continueLbls = new Stack<string>();
 
+        // Тип элемента, на который показывает адрес, только что
+        // посчитанный в R1 (GenAddr/GenArrAddr). Нужен, чтобы читать и
+        // писать байтовые массивы байтовыми командами.
+        private bool _r1Byte;
+        // Если адрес в R1 указывает на структуру — её тип; тогда значением
+        // выражения считается сам адрес, а не слово по нему.
+        private string _r1Struct;
+
         private class SymInfo
         {
             public MiniCType Type;
@@ -376,16 +384,110 @@ namespace CompMacro11
 
         // Размер одного поля в словах — само число или размер вложенной
         // структуры/массива.
+        // Данные структуры в секции DATA: поля идут по раскладке, байтовые
+        // выводятся .BYTE, остальные .WORD. Перед словом ставим .EVEN, иначе
+        // после нечётного числа байт слово легло бы на нечётный адрес.
+        private void EmitStructData(string structName, List<int> flat)
+        {
+            var layout = new List<KeyValuePair<int, bool>>();
+            StructLayout(structName, 0, layout);
+
+            var buf = new System.Text.StringBuilder();
+            bool bufIsByte = false;
+            int inBuf = 0;
+
+            System.Action flush = () =>
+            {
+                if (inBuf == 0) return;
+                E($"        {(bufIsByte ? ".BYTE" : ".WORD")}\t{buf}");
+                buf.Clear(); inBuf = 0;
+            };
+
+            for (int i = 0; i < layout.Count; i++)
+            {
+                bool isByte = layout[i].Value;
+                int val = (flat != null && i < flat.Count) ? flat[i] : 0;
+                if (inBuf > 0 && isByte != bufIsByte) { flush(); if (!isByte) E("        .EVEN"); }
+                bufIsByte = isByte;
+                if (buf.Length > 0) buf.Append(",");
+                buf.Append(isByte
+                    ? $"{val & 0xFF}."
+                    : (val > 32767 || val < 0 ? Convert.ToString((ushort)val, 8) : $"{val}."));
+                inBuf++;
+                if (inBuf == 8) flush();
+            }
+            flush();
+            E("        .EVEN");
+        }
+
         private int FieldWords(MiniCType t) =>
             t.IsStruct ? StructWords(t.StructName) :
             t.IsArray ? t.TotalElements() : 1;
 
-        private int StructWords(string structName)
+        // ── Раскладка структуры в байтах ──────────────────────────
+        //   Поле byte занимает байт, остальные — слово и кладутся по
+        //   чётному адресу (PDP-11 читает слово только с чётного).
+        //   Размер структуры округляется до слова.
+        private int StructBytes(string structName)
         {
-            int total = 0;
+            int off = 0;
             foreach (var f in StructOf(structName).Fields)
-                total += FieldWords(f.Type);
-            return total;
+            {
+                if (f.Type.IsStruct)
+                {
+                    off = (off + 1) & ~1;
+                    off += StructBytes(f.Type.StructName);
+                }
+                else if (f.Type.IsByte)
+                    off += f.Type.IsArray ? f.Type.TotalElements() : 1;
+                else
+                {
+                    off = (off + 1) & ~1;
+                    off += (f.Type.IsArray ? f.Type.TotalElements() : 1) * 2;
+                }
+            }
+            return (off + 1) & ~1;
+        }
+
+        private int StructWords(string structName) => StructBytes(structName) / 2;
+
+        // Сколько значений забирает инициализатор одной структуры —
+        // столько же, сколько в ней скалярных ячеек (массив-поле даёт свои
+        // элементы, вложенная структура — свои поля). Нужно, чтобы разрезать
+        // плоский инициализатор массива структур на элементы.
+        private int StructValueCount(string structName)
+        {
+            var layout = new List<KeyValuePair<int, bool>>();
+            StructLayout(structName, 0, layout);
+            return layout.Count;
+        }
+
+        // Смещение каждого элемента инициализатора: (байт от начала
+        // структуры, лежит ли он в байте). Массив даёт свои элементы
+        // подряд, вложенная структура — рекурсивно.
+        private void StructLayout(string structName, int baseOff, List<KeyValuePair<int, bool>> outList)
+        {
+            int off = baseOff;
+            foreach (var f in StructOf(structName).Fields)
+            {
+                if (f.Type.IsStruct)
+                {
+                    off = (off + 1) & ~1;
+                    StructLayout(f.Type.StructName, off, outList);
+                    off += StructBytes(f.Type.StructName);
+                }
+                else if (f.Type.IsByte)
+                {
+                    int n = f.Type.IsArray ? f.Type.TotalElements() : 1;
+                    for (int i = 0; i < n; i++) { outList.Add(new KeyValuePair<int, bool>(off, true)); off += 1; }
+                }
+                else
+                {
+                    off = (off + 1) & ~1;
+                    int n = f.Type.IsArray ? f.Type.TotalElements() : 1;
+                    for (int i = 0; i < n; i++) { outList.Add(new KeyValuePair<int, bool>(off, false)); off += 2; }
+                }
+            }
         }
 
         private int FieldOffset(string structName, string fieldName, out StructFieldNode field)
@@ -394,8 +496,11 @@ namespace CompMacro11
             int offset = 0;
             foreach (var f in s.Fields)
             {
+                if (f.Type.IsStruct || !f.Type.IsByte) offset = (offset + 1) & ~1;
                 if (f.Name == fieldName) { field = f; return offset; }
-                offset += FieldWords(f.Type) * 2;
+                if (f.Type.IsStruct) offset += StructBytes(f.Type.StructName);
+                else if (f.Type.IsByte) offset += f.Type.IsArray ? f.Type.TotalElements() : 1;
+                else offset += (f.Type.IsArray ? f.Type.TotalElements() : 1) * 2;
             }
             throw new Exception($"У структуры '{structName}' нет поля '{fieldName}'");
         }
@@ -513,22 +618,36 @@ namespace CompMacro11
                     if (g.Type.IsStruct)
                     {
                         int words = StructWords(g.Type.StructName);
+                        int count = g.Type.IsArray ? g.Type.TotalElements() : 1;
                         var sflat = g.ArrayInit?.Flat;
                         bool shasData = sflat != null && sflat.Exists(x => x != 0);
                         if (!shasData)
                         {
-                            E($"{glbl}:   .BLKW\t{words}.");
+                            E($"{glbl}:   .BLKW\t{words * count}.");
+                        }
+                        else if (count == 1)
+                        {
+                            E($"{glbl}:");
+                            EmitStructData(g.Type.StructName, sflat);
                         }
                         else
                         {
+                            // Массив структур: плоский инициализатор режем на
+                            // элементы и выводим каждый по раскладке своего
+                            // типа — иначе байтовые поля съезжают.
+                            int per = StructValueCount(g.Type.StructName);
                             E($"{glbl}:");
-                            var ssb = new System.Text.StringBuilder();
-                            for (int i = 0; i < words; i++)
+                            var slice = new List<int>(per);
+                            for (int k = 0; k < count; k++)
                             {
-                                int val = (sflat != null && i < sflat.Count) ? sflat[i] : 0;
-                                if (ssb.Length > 0) ssb.Append(",");
-                                ssb.Append(val > 32767 || val < 0 ? Convert.ToString((ushort)val, 8) : $"{val}.");
-                                if ((i + 1) % 8 == 0 || i == words - 1) { E($"        .WORD\t{ssb}"); ssb.Clear(); }
+                                slice.Clear();
+                                for (int q = 0; q < per; q++)
+                                {
+                                    int at = k * per + q;
+                                    slice.Add(at < sflat.Count ? sflat[at] : 0);
+                                }
+                                EC($"{g.Name}[{k}]");
+                                EmitStructData(g.Type.StructName, slice);
                             }
                         }
                     }
@@ -551,7 +670,28 @@ namespace CompMacro11
                         int total = g.Type.TotalElements();
                         var flatLbls2 = g.ArrayInit?.FlatLabels;
                         bool hasData = (flat != null && flat.Exists(x => x != 0)) || (flatLbls2 != null && flatLbls2.Exists(l => l != null));
-                        if (!hasData)
+                        if (g.Type.IsByte)
+                        {
+                            // Массив байт: по байту на элемент, .EVEN — чтобы
+                            // следующая метка снова легла на границу слова.
+                            if (!hasData)
+                                E($"{glbl}:   .BLKB\t{total}.");
+                            else
+                            {
+                                E($"{glbl}:");
+                                var bsb = new System.Text.StringBuilder();
+                                for (int i = 0; i < total; i++)
+                                {
+                                    int val = (flat != null && i < flat.Count) ? flat[i] : 0;
+                                    if (bsb.Length > 0) bsb.Append(",");
+                                    bsb.Append($"{val & 0xFF}.");
+                                    if ((i + 1) % 8 == 0 || i == total - 1)
+                                    { E($"        .BYTE\t{bsb}"); bsb.Clear(); }
+                                }
+                            }
+                            E("        .EVEN");
+                        }
+                        else if (!hasData)
                         {
                             E($"{glbl}:   .BLKW\t{total}.");
                         }
@@ -822,7 +962,16 @@ namespace CompMacro11
         // ── Символы ───────────────────────────────────────────────
         private SymInfo Decl(string name, MiniCType t)
         {
-            int bytes = t.IsStruct ? StructWords(t.StructName) * 2 : t.IsArray ? t.TotalElements() * 2 : 2;
+            int bytes;
+            if (t.IsStruct)
+                bytes = StructBytes(t.StructName) * (t.IsArray ? t.TotalElements() : 1);
+            else if (t.IsArray)
+            {
+                // массив байт — по байту на элемент, размер округляем
+                // вверх до слова, чтобы кадр стека оставался чётным
+                bytes = t.IsByte ? (t.TotalElements() + 1) & ~1 : t.TotalElements() * 2;
+            }
+            else bytes = 2;
             _cur.LocalSize += bytes;
             var info = new SymInfo { Type = t, Offset = -_cur.LocalSize, IsParam = false };
             _cur.Syms[name] = info;
@@ -915,7 +1064,25 @@ namespace CompMacro11
                     // Сгенерировать данные в буфер (сольём в DATA после функции)
                     var sb3 = new System.Text.StringBuilder();
                     sb3.AppendLine($"{statLbl}:");
-                    if (!hasNonZero)
+                    if (v.Type.IsByte)
+                    {
+                        if (!hasNonZero)
+                            sb3.AppendLine($"        .BLKB\t{total}.");
+                        else
+                        {
+                            var bsb = new System.Text.StringBuilder();
+                            for (int i = 0; i < total; i++)
+                            {
+                                int val = (i < flat.Count) ? flat[i] : 0;
+                                if (bsb.Length > 0) bsb.Append(",");
+                                bsb.Append($"{val & 0xFF}.");
+                                if ((i + 1) % 8 == 0 || i == total - 1)
+                                { sb3.AppendLine($"        .BYTE\t{bsb}"); bsb.Clear(); }
+                            }
+                        }
+                        sb3.AppendLine("        .EVEN");
+                    }
+                    else if (!hasNonZero)
                     {
                         sb3.AppendLine($"        .BLKW\t{total}.");
                     }
@@ -946,7 +1113,8 @@ namespace CompMacro11
                     if (!hasNonZero)
                     {
                         EC($"обнулить статический {v.Name}[{total}]");
-                        EI("MOV", $"#{total}., -(SP)");
+                        int clrWords = v.Type.IsByte ? (total + 1) / 2 : total;
+                        EI("MOV", $"#{clrWords}., -(SP)");
                         EI("MOV", $"#{statLbl}, -(SP)");
                         EI("JSR", "PC, RTMCLR");
                         EI("ADD", "#4., SP");
@@ -1003,6 +1171,39 @@ namespace CompMacro11
                     EI("ADD", "#6., SP");
                 }
             }
+            else if (v.Type.IsStruct && v.Type.IsArray)
+            {
+                // Локальный массив структур: обнуляем целиком, затем
+                // раскладываем инициализатор поэлементно.
+                var info = Decl(v.Name, v.Type);
+                int one = StructWords(v.Type.StructName);
+                int count = v.Type.TotalElements();
+                var sflat = v.ArrayInit?.Flat;
+                EC($"обнулить {v.Name} ({count} × {one} слов)");
+                for (int w = 0; w < one * count; w++) EI("CLR", FP(info.Offset + w * 2));
+                if (sflat != null && sflat.Exists(x => x != 0))
+                {
+                    var layout = new List<KeyValuePair<int, bool>>();
+                    StructLayout(v.Type.StructName, 0, layout);
+                    int per = layout.Count;
+                    int elemBytes = StructBytes(v.Type.StructName);
+                    for (int k = 0; k < count; k++)
+                        for (int i = 0; i < per; i++)
+                        {
+                            int at = k * per + i;
+                            int val = at < sflat.Count ? sflat[at] : 0;
+                            if (val == 0) continue;
+                            int adr = info.Offset + k * elemBytes + layout[i].Key;
+                            if (layout[i].Value)
+                                EI("MOVB", $"#{val & 0xFF}., {FP(adr)}");
+                            else
+                            {
+                                string lit = val > 32767 || val < 0 ? Convert.ToString((ushort)val, 8) : $"{val}.";
+                                EI("MOV", $"#{lit}, {FP(adr)}");
+                            }
+                        }
+                }
+            }
             else if (v.Type.IsStruct)
             {
                 var info = Decl(v.Name, v.Type);
@@ -1020,14 +1221,22 @@ namespace CompMacro11
                 else
                 {
                     EC($"инициализировать {v.Name} ({words} слов)");
-                    for (int w = 0; w < words; w++)
+                    var layout = new List<KeyValuePair<int, bool>>();
+                    StructLayout(v.Type.StructName, 0, layout);
+                    // сначала обнулить целиком — так байтовые поля не
+                    // оставляют мусор в соседнем байте слова
+                    for (int w = 0; w < words; w++) EI("CLR", FP(info.Offset + w * 2));
+                    for (int i = 0; i < layout.Count; i++)
                     {
-                        int val = w < sflat.Count ? sflat[w] : 0;
-                        if (val == 0) EI("CLR", FP(info.Offset + w * 2));
+                        int val = i < sflat.Count ? sflat[i] : 0;
+                        if (val == 0) continue;
+                        int at = info.Offset + layout[i].Key;
+                        if (layout[i].Value)
+                            EI("MOVB", $"#{val & 0xFF}., {FP(at)}");
                         else
                         {
                             string lit = val > 32767 || val < 0 ? Convert.ToString((ushort)val, 8) : $"{val}.";
-                            EI("MOV", $"#{lit}, {FP(info.Offset + w * 2)}");
+                            EI("MOV", $"#{lit}, {FP(at)}");
                         }
                     }
                 }
@@ -1557,6 +1766,8 @@ namespace CompMacro11
                     var maType = GenMemberAddr(ma);
                     if (maType.IsArray || maType.IsStruct)
                         EI("MOV", "R1, R0");   // поле-массив/поле-структура — отдать адрес, не разыменовывать
+                    else if (maType.IsByte)
+                    { EI("MOVB", "(R1), R0"); EI("BIC", "#177400, R0"); }
                     else
                         EI("MOV", "(R1), R0");
                     InvalidateR0();
@@ -1634,9 +1845,11 @@ namespace CompMacro11
                         EI(sym.Offset > 0 ? "ADD" : "SUB", $"#{Math.Abs(sym.Offset)}., R1");
                 }
             }
-            else if (lval is ArrayIndexExpr ai) GenArrAddr(ai);
-            else if (lval is MemberAccessExpr ma) GenMemberAddr(ma);
+            else if (lval is ArrayIndexExpr ai) { GenArrAddr(ai); return; }
+            else if (lval is MemberAccessExpr ma) { GenMemberAddr(ma); return; }
             else throw new Exception($"Строка {lval.Line}: недопустимый lvalue");
+            _r1Byte = false;
+            _r1Struct = null;
         }
 
         // Адрес поля структуры → R1. В этой версии Target всегда простая
@@ -1667,6 +1880,15 @@ namespace CompMacro11
             {
                 baseType = GenMemberAddr(inner);   // адрес внешнего поля уже в R1
             }
+            else if (ma.Target is ArrayIndexExpr tai)
+            {
+                // Элемент массива структур: levels[i].field
+                string sn = StructNameOfExpr(tai);
+                if (sn == null)
+                    throw new Exception($"Строка {ma.Line}: слева от '.' не элемент массива структур");
+                GenArrAddr(tai);                   // адрес элемента → R1
+                baseType = new MiniCType { IsStruct = true, StructName = sn };
+            }
             else
             {
                 throw new Exception($"Строка {ma.Line}: слева от '.' должна быть переменная-структура или другое поле-структура");
@@ -1677,13 +1899,81 @@ namespace CompMacro11
             int offset = FieldOffset(baseType.StructName, ma.Field, out var field);
             if (offset != 0)
                 EI("ADD", $"#{offset}., R1");
+            _r1Byte = field.Type.IsByte && !field.Type.IsArray && !field.Type.IsStruct;
+            _r1Struct = (field.Type.IsStruct && !field.Type.IsArray) ? field.Type.StructName : null;
             return field.Type;
+        }
+
+        // ── На структуру какого типа ссылается выражение ──────────
+        //   Нужно для присваивания структуры целиком: слева и справа могут
+        //   стоять переменная, элемент массива структур или поле-структура.
+        //   Возвращает имя типа или null, если выражение не структура.
+        private string StructNameOfExpr(ExprNode e)
+        {
+            if (e is IdentExpr id)
+            {
+                var s = Sym(id.Name, id.Line);
+                return (s.Type.IsStruct && !s.Type.IsArray) ? s.Type.StructName : null;
+            }
+            if (e is ArrayIndexExpr ai)
+            {
+                ExprNode root = ai;
+                while (root is ArrayIndexExpr r) root = r.Array;
+                if (root is IdentExpr rid)
+                {
+                    var s = Sym(rid.Name, rid.Line);
+                    return (s.Type.IsStruct && s.Type.IsArray) ? s.Type.StructName : null;
+                }
+                if (root is MemberAccessExpr rma)
+                {
+                    var ft = FieldTypeOfExpr(rma);
+                    return (ft != null && ft.IsStruct && ft.IsArray) ? ft.StructName : null;
+                }
+                return null;
+            }
+            if (e is MemberAccessExpr ma)
+            {
+                var ft = FieldTypeOfExpr(ma);
+                return (ft != null && ft.IsStruct && !ft.IsArray) ? ft.StructName : null;
+            }
+            return null;
+        }
+
+        // Тип поля по выражению доступа — без генерации кода, только разбор
+        // объявлений структур.
+        private MiniCType FieldTypeOfExpr(MemberAccessExpr ma)
+        {
+            MiniCType baseType = null;
+            if (ma.Target is IdentExpr tid) baseType = Sym(tid.Name, tid.Line).Type;
+            else if (ma.Target is MemberAccessExpr inner) baseType = FieldTypeOfExpr(inner);
+            else if (ma.Target is ArrayIndexExpr tai)
+            {
+                string sn = StructNameOfExpr(tai);
+                if (sn != null) baseType = new MiniCType { IsStruct = true, StructName = sn };
+            }
+            if (baseType == null || !baseType.IsStruct) return null;
+            if (!_structs.ContainsKey(baseType.StructName)) return null;
+            foreach (var f in StructOf(baseType.StructName).Fields)
+                if (f.Name == ma.Field) return f.Type;
+            return null;
         }
 
         private void GenArrLoad(ArrayIndexExpr ai)
         {
             GenArrAddr(ai);
-            EI("MOV", "(R1), R0");
+            if (_r1Struct != null)
+            {
+                EI("MOV", "R1, R0");    // элемент-структура — отдаём адрес
+                return;
+            }
+            if (_r1Byte)
+            {
+                // MOVB расширяет знак, поэтому старший байт гасим:
+                // byte — это 0..255, отрицательных значений быть не может.
+                EI("MOVB", "(R1), R0");
+                EI("BIC", "#177400, R0");
+            }
+            else EI("MOV", "(R1), R0");
         }
 
         // Вычислить адрес элемента массива → R1
@@ -1703,11 +1993,15 @@ namespace CompMacro11
             SymInfo sym = null;
             List<int> dims;
             bool rootIsField = node is MemberAccessExpr;
+            bool fieldByte = false;
+            string fieldStruct = null;
             if (rootIsField)
             {
                 var fieldType = GenMemberAddr((MemberAccessExpr)node);
                 if (!fieldType.IsArray)
                     throw new Exception($"Строка {ai.Line}: поле не является массивом");
+                fieldByte = fieldType.IsByte;
+                fieldStruct = fieldType.IsStruct ? fieldType.StructName : null;
                 dims = fieldType.Dims;
                 EI("MOV", "R1, -(SP)");   // адрес поля — на время вычисления индекса
             }
@@ -1727,22 +2021,21 @@ namespace CompMacro11
             for (int k = 1; k < chain.Count; k++)
             {
                 int dim = k < dims.Count ? dims[k] : 1;
-                if (dim > 1)
-                {
-                    int dimShift = Log2Exact(dim);
-                    if (dimShift > 0)
-                        for (int s = 0; s < dimShift; s++) EI("ASL", "R2");
-                    else
-                    {
-                        EI("MOV", $"#{dim}., R0");
-                        EI("MOV", "R2, R1");
-                        EI("MUL", "R0, R1");
-                        EI("MOV", "R1, R2");
-                    }
-                }
+                if (dim > 1) EmitMulConst(dim, "R2");   // тоже сдвигами, без MUL
                 GenExpr(chain[k].Index);  // R0 = index[k]
                 EI("ADD", "R0, R2");
             }
+
+            // Шаг элемента: структура — её размер, байт — 1, иначе слово.
+            // Масштабируем ДО загрузки базы: умножение занимает R1.
+            bool elemByte = rootIsField ? fieldByte : sym.Type.IsByte;
+            string elemStruct = rootIsField ? fieldStruct
+                                            : (sym.Type.IsStruct ? sym.Type.StructName : null);
+            int elemBytes = elemStruct != null ? StructBytes(elemStruct) : (elemByte ? 1 : 2);
+            // Размер структуры — не степень двойки (у struct Level 244 байта),
+            // но умножение всё равно идёт сдвигами: 244 = 256 - 16 + 4.
+            // R1 здесь свободен: база грузится ниже, а адрес поля лежит в стеке.
+            EmitMulConst(elemBytes, "R2");
 
             // Базовый адрес → R1
             if (rootIsField)
@@ -1758,9 +2051,9 @@ namespace CompMacro11
                     EI(sym.Offset > 0 ? "ADD" : "SUB", $"#{Math.Abs(sym.Offset)}., R1");
             }
 
-            // R1 += R2 * 2
-            EI("ASL", "R2");
             EI("ADD", "R2, R1");
+            _r1Byte = elemByte;
+            _r1Struct = elemStruct;
         }
 
         // ── Унарные ──────────────────────────────────────────────
@@ -1778,8 +2071,16 @@ namespace CompMacro11
                         EL(t); EI("CLR", "R0"); EL(e);
                         break;
                     }
-                case "++": GenAddr(u.Operand); EI("MOV", "(R1), R0"); EI("INC", "(R1)"); break;
-                case "--": GenAddr(u.Operand); EI("MOV", "(R1), R0"); EI("DEC", "(R1)"); break;
+                case "++":
+                    GenAddr(u.Operand);
+                    if (_r1Byte) { EI("MOVB", "(R1), R0"); EI("BIC", "#177400, R0"); EI("INCB", "(R1)"); }
+                    else { EI("MOV", "(R1), R0"); EI("INC", "(R1)"); }
+                    break;
+                case "--":
+                    GenAddr(u.Operand);
+                    if (_r1Byte) { EI("MOVB", "(R1), R0"); EI("BIC", "#177400, R0"); EI("DECB", "(R1)"); }
+                    else { EI("MOV", "(R1), R0"); EI("DEC", "(R1)"); }
+                    break;
                 default: throw new Exception($"Строка {u.Line}: неизвестный оператор '{u.Op}'");
             }
         }
@@ -2299,140 +2600,77 @@ namespace CompMacro11
             return shift;
         }
 
+        // ── Умножение на константу — только сдвигами ──────────────
+        //   MUL не используем: константа раскладывается в знаковую форму без
+        //   соседних единиц (NAF) — сумму степеней двойки со знаками, где
+        //   слагаемых меньше, чем единиц в двоичной записи. Дальше схема
+        //   Горнера по позициям: берём x, сдвигаем до следующей позиции,
+        //   прибавляем или вычитаем x, в конце добиваем сдвигом.
+        //
+        //   Для 244 (размер struct Level) 244 = 256 - 16 + 4, и выходит:
+        //     MOV reg, tmp      ; tmp = x
+        //     ASL reg ×4        ; 16x
+        //     SUB tmp, reg      ; 15x
+        //     ASL reg ×2        ; 60x
+        //     ADD tmp, reg      ; 61x
+        //     ASL reg ×2        ; 244x
+        //
+        //   Всё считается по модулю 65536, поэтому промежуточное
+        //   переполнение на результат не влияет. Худший случай для 16-битной
+        //   константы — 23 команды (n = 21846), обычные размеры структур и
+        //   множители укладываются в 8-12.
         private void EmitMulConst(int n, string reg)
         {
-            // Степень 2 → только ASL
-            int shift = Log2Exact(n);
-            if (shift == 0) return;
-            if (shift > 0)
+            if (n == 1) return;
+            if (n == 0) { EI("CLR", reg); InvalidateR0(); return; }
+
+            bool neg = n < 0;
+            int m = neg ? -n : n;
+
+            int shift = Log2Exact(m);
+            if (shift >= 0)
             {
                 for (int i = 0; i < shift; i++) EI("ASL", reg);
+                if (neg) EI("NEG", reg);
                 InvalidateR0();
                 return;
             }
 
-            // Малые константы через сдвиги и сложения — без MUL
-            // reg = x. tmp — временный регистр.
+            var digits = Naf(m);                      // от старшей позиции к младшей
             string tmp = (reg == "R1") ? "R0" : "R1";
-
-            switch (n)
+            EI("MOV", $"{reg}, {tmp}");               // tmp = x, reg — накопитель
+            int prev = digits[0].Key;                 // ведущая цифра всегда +1
+            for (int i = 1; i < digits.Count; i++)
             {
-                case 3:  // x*2 + x
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg);
-                    EI("ADD", $"{tmp}, {reg}");
-                    break;
-                case 5:  // x*4 + x
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg); EI("ASL", reg);
-                    EI("ADD", $"{tmp}, {reg}");
-                    break;
-                case 6:  // x*4 + x*2
-                    EI("ASL", reg);
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg);
-                    EI("ADD", $"{tmp}, {reg}");
-                    break;
-                case 7:  // x*8 - x
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg);
-                    EI("SUB", $"{tmp}, {reg}");
-                    break;
-                case 9:  // x*8 + x
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg);
-                    EI("ADD", $"{tmp}, {reg}");
-                    break;
-                case 10: // x*8 + x*2
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", tmp);
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg);
-                    EI("ADD", $"{tmp}, {reg}");
-                    break;
-                case 11: // x*8 + x*2 + x
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); // *8
-                    EI("ADD", $"{tmp}, {reg}");                      // *9
-                    EI("ASL", tmp);                                  // tmp=x*2
-                    EI("ADD", $"{tmp}, {reg}");                      // *11
-                    break;
-                case 12: // x*8 + x*4
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", tmp); EI("ASL", tmp);
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg);
-                    EI("ADD", $"{tmp}, {reg}");
-                    break;
-                case 13: // x*8 + x*4 + x  →  tmp=x, reg=x*4, reg+=tmp(→x*5), reg*=2(→x*10+??)
-                         // Правильно: tmp=x, reg*=4, reg+=tmp(→x*5), reg*=2(→x*10), tmp*=2(→x*2), reg+=tmp(→x*12)?
-                         // Проще: reg=x*16-x*2-x = x*13
-                    EI("MOV", $"{reg}, {tmp}");                       // tmp=x
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); // reg=x*16
-                    EI("SUB", $"{tmp}, {reg}");                       // reg=x*15
-                    EI("ASL", tmp);                                   // tmp=x*2
-                    EI("SUB", $"{tmp}, {reg}");                       // reg=x*13
-                    break;
-                case 19: // x*16 + x*2 + x
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); // *16
-                    EI("ADD", $"{tmp}, {reg}");                       // *17
-                    EI("ASL", tmp);                                   // tmp=x*2
-                    EI("ADD", $"{tmp}, {reg}");                       // *19
-                    break;
-                case 21: // x*16 + x*4 + x
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); // *16
-                    EI("ADD", $"{tmp}, {reg}");                       // *17
-                    EI("ASL", tmp); EI("ASL", tmp);                   // tmp=x*4
-                    EI("ADD", $"{tmp}, {reg}");                       // *21
-                    break;
-                case 14: // x*16 - x*2
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", tmp);                                   // tmp = x*2
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); // *16
-                    EI("SUB", $"{tmp}, {reg}");
-                    break;
-                case 15: // x*16 - x
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); EI("ASL", reg);
-                    EI("SUB", $"{tmp}, {reg}");
-                    break;
-                case 17: // x*16 + x
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); EI("ASL", reg);
-                    EI("ADD", $"{tmp}, {reg}");
-                    break;
-                case 18: // x*16 + x*2
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", tmp);
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); EI("ASL", reg);
-                    EI("ADD", $"{tmp}, {reg}");
-                    break;
-                case 20: // x*16 + x*4
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", tmp); EI("ASL", tmp);
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); EI("ASL", reg);
-                    EI("ADD", $"{tmp}, {reg}");
-                    break;
-                case 24: // x*16 + x*8
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", tmp); EI("ASL", tmp); EI("ASL", tmp);
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); EI("ASL", reg);
-                    EI("ADD", $"{tmp}, {reg}");
-                    break;
-                case 25: // x*16 + x*8 + x
-                    EI("MOV", $"{reg}, {tmp}");
-                    EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); EI("ASL", reg); // *16
-                    EI("ADD", $"{tmp}, {reg}");                      // *17
-                    EI("ASL", tmp); EI("ASL", tmp); EI("ASL", tmp); // tmp=x*8
-                    EI("ADD", $"{tmp}, {reg}");                      // *25
-                    break;
-                default:
-                    // Общий случай — MUL
-                    if (reg == "R0") { EI("MOV", "R0, R1"); EI("MOV", $"#{n}., R0"); EI("MUL", "R0, R1"); EI("MOV", "R1, R0"); }
-                    else { EI("MOV", $"#{n}., R0"); EI("MUL", "R0, R1"); EI("MOV", "R1, " + reg); }
-                    break;
+                for (int s = 0; s < prev - digits[i].Key; s++) EI("ASL", reg);
+                EI(digits[i].Value > 0 ? "ADD" : "SUB", $"{tmp}, {reg}");
+                prev = digits[i].Key;
             }
+            for (int s = 0; s < prev; s++) EI("ASL", reg);
+            if (neg) EI("NEG", reg);
             InvalidateR0();
+        }
+
+        // Знаковая форма без соседних единиц: n = сумма sign * 2^pos.
+        // Пара ...11 заменяется на вычитание с переносом, поэтому длинные
+        // цепочки единиц дают по одному слагаемому, а не по единице на бит.
+        private static List<KeyValuePair<int, int>> Naf(int n)
+        {
+            var res = new List<KeyValuePair<int, int>>();
+            int pos = 0;
+            while (n > 0)
+            {
+                if ((n & 1) != 0)
+                {
+                    int digit = (n & 3) == 3 ? -1 : 1;
+                    res.Add(new KeyValuePair<int, int>(pos, digit));
+                    n -= digit;
+                }
+                n >>= 1;
+                pos++;
+            }
+            res.Reverse();
+            return res;
         }
 
         private void EmitDivConst(int n)
@@ -2645,27 +2883,44 @@ namespace CompMacro11
 
             if (a.Op == "=")
             {
-                // Присваивание структуры целиком: a = b, оба одного типа.
-                // Копируем поле за полем через адрес — сама переменная-
-                // структура уже отдаёт свой адрес в R0 (как массив).
-                if (a.Target is IdentExpr stid)
+                // Присваивание структуры целиком: dst = src, оба одного типа.
+                // Слева и справа может быть переменная, элемент массива
+                // структур (levels[num]) или поле-структура — всё это отдаёт
+                // в R0 свой адрес, дальше копируем словами.
                 {
-                    var maybeSym = Sym(stid.Name, stid.Line);
-                    if (maybeSym.Type.IsStruct)
+                    string dstStruct = StructNameOfExpr(a.Target);
+                    if (dstStruct != null)
                     {
-                        if (!(a.Value is IdentExpr svid))
-                            throw new Exception($"Строка {a.Line}: структуре можно присвоить только другую переменную того же типа структуры");
-                        var ssym = Sym(svid.Name, svid.Line);
-                        if (!ssym.Type.IsStruct || ssym.Type.StructName != maybeSym.Type.StructName)
-                            throw new Exception($"Строка {a.Line}: несовпадающие типы структур в присваивании ({ssym.Type} → {maybeSym.Type})");
-                        int words = StructWords(maybeSym.Type.StructName);
-                        GenExpr(a.Value);              // R0 = адрес источника
-                        EI("MOV", "R0, R1");
+                        string srcStruct = StructNameOfExpr(a.Value);
+                        if (srcStruct == null)
+                            throw new Exception($"Строка {a.Line}: структуре можно присвоить только структуру того же типа");
+                        if (srcStruct != dstStruct)
+                            throw new Exception($"Строка {a.Line}: несовпадающие типы структур в присваивании ({srcStruct} → {dstStruct})");
+                        int words = StructWords(dstStruct);
+                        GenExpr(a.Value);               // R0 = адрес источника
+                        EI("MOV", "R0, -(SP)");         // индексация приёмника занимает R1/R2
                         GenExpr(a.Target);              // R0 = адрес приёмника
                         EI("MOV", "R0, R2");
-                        EC($"структура целиком: {svid.Name} → {stid.Name} ({words} слов)");
-                        for (int w = 0; w < words; w++)
+                        EI("MOV", "(SP)+, R1");
+                        EC($"структура целиком, {words} слов");
+                        if (words <= 8)
+                        {
+                            for (int w = 0; w < words; w++)
+                                EI("MOV", "(R1)+, (R2)+");
+                        }
+                        else
+                        {
+                            // Большая структура — цикл вместо разворота: на
+                            // уровне Battle City (122 слова) развёрнутое
+                            // копирование заняло бы четверть килобайта кода.
+                            // R3 в генерируемом коде свободен, тело цикла —
+                            // одно слово, так что SOB дотягивается всегда.
+                            string top = L();
+                            EI("MOV", $"#{words}., R3");
+                            ELTracked(top);
                             EI("MOV", "(R1)+, (R2)+");
+                            EI("SOB", $"R3, {top}");
+                        }
                         return;
                     }
                 }
@@ -2675,6 +2930,8 @@ namespace CompMacro11
                     GenExpr(a.Value);
                     // bool: нормализовать к 0/1 — любое ненулевое → 1
                     if (sym.Type.IsBool) EmitNormalizeBool();
+                    // byte: обрезать до 0..255
+                    if (sym.Type.IsByte) EI("BIC", "#177400, R0");
                     EI("MOV", $"R0, {FP(sym.Offset)}");
                     return;
                 }
@@ -2682,7 +2939,12 @@ namespace CompMacro11
                 EI("MOV", "R0, -(SP)");
                 GenAddr(a.Target);
                 EI("MOV", "(SP)+, R0");
-                EI("MOV", "R0, (R1)");
+                if (_r1Byte) EI("MOVB", "R0, (R1)");        // в массив байт — байтом
+                else
+                {
+                    if (IsByteScalar(a.Target)) EI("BIC", "#177400, R0");
+                    EI("MOV", "R0, (R1)");
+                }
                 return;
             }
 
@@ -2697,7 +2959,12 @@ namespace CompMacro11
             {
                 case "+=": EI("ADD", "R0, R1"); EI("MOV", "R1, R0"); break;
                 case "-=": EI("SUB", "R0, R1"); EI("MOV", "R1, R0"); break;
-                case "*=": EI("MUL", "R0, R1"); EI("MOV", "R1, R0"); break;
+                case "*=":
+                    // x *= константа — тоже сдвигами (R1 = x, R0 свободен)
+                    if (a.Value is IntLiteralExpr mulLit) EmitMulConst(mulLit.Value, "R1");
+                    else EI("MUL", "R0, R1");
+                    EI("MOV", "R1, R0");
+                    break;
                 case "/=":
                     EI("MOV", "R0, -(SP)"); EI("TST", "R1"); EI("SXT", "R0");
                     EI("DIV", "(SP)+, R0");
@@ -2732,7 +2999,19 @@ namespace CompMacro11
             }
 
             EI("MOV", "(SP)+, R1");
-            EI("MOV", "R0, (R1)");
+            if (_r1Byte) EI("MOVB", "R0, (R1)");
+            else EI("MOV", "R0, (R1)");
+        }
+
+        // byte-скаляр лежит в слове, но значение обрезаем до 0..255
+        private bool IsByteScalar(ExprNode lval)
+        {
+            if (lval is IdentExpr id && _cur != null &&
+                _cur.Syms.TryGetValue(id.Name, out var s))
+                return s.Type.IsByte && !s.Type.IsArray;
+            if (lval is IdentExpr gid && _globals.TryGetValue(gid.Name, out var g))
+                return g.Type.IsByte && !g.Type.IsArray;
+            return false;
         }
 
         // Нормализовать R0 к 0 или 1 (для bool)

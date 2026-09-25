@@ -49,7 +49,8 @@ namespace CompMacro11
                     prog.Structs.Add(sd);
                 }
                 else if (Check(TokenType.KwStruct) ||
-                         ((Check(TokenType.KwInt) || Check(TokenType.KwBool)) && PeekIsGlobal()))
+                         ((Check(TokenType.KwInt) || Check(TokenType.KwBool) ||
+                           Check(TokenType.KwByte)) && PeekIsGlobal()))
                     prog.Globals.AddRange(ParseGlobalVar());
                 else
                     prog.Functions.Add(ParseFuncDecl());
@@ -112,7 +113,8 @@ namespace CompMacro11
         {
             int i = _pos;
             if (i < _tokens.Count &&
-                (_tokens[i].Type == TokenType.KwInt || _tokens[i].Type == TokenType.KwBool))
+                (_tokens[i].Type == TokenType.KwInt || _tokens[i].Type == TokenType.KwBool ||
+                 _tokens[i].Type == TokenType.KwByte))
                 i++;
             if (i < _tokens.Count && _tokens[i].Type == TokenType.Identifier)
                 i++;
@@ -130,7 +132,7 @@ namespace CompMacro11
             var decls = new List<VarDeclStmtNode>();
             do
             {
-                var vt = new MiniCType { IsVoid = t.IsVoid, IsBool = t.IsBool, IsStruct = t.IsStruct, StructName = t.StructName };
+                var vt = new MiniCType { IsVoid = t.IsVoid, IsBool = t.IsBool, IsByte = t.IsByte, IsStruct = t.IsStruct, StructName = t.StructName };
                 var name = Expect(TokenType.Identifier).Value;
                 ParseArrayDims(vt, firstCanBeEmpty: false);
                 ExprNode init = null;
@@ -161,6 +163,7 @@ namespace CompMacro11
             }
             if (Check(TokenType.KwVoid)) { Consume(); t.IsVoid = true; }
             else if (Check(TokenType.KwBool)) { Consume(); t.IsBool = true; }
+            else if (Check(TokenType.KwByte)) { Consume(); t.IsByte = true; }
             else Expect(TokenType.KwInt);
             return t;
         }
@@ -271,7 +274,8 @@ namespace CompMacro11
             if (Check(TokenType.KwContinue)) { Consume(); Expect(TokenType.Semicolon); return new ContinueStmtNode { Line = line }; }
             if (Check(TokenType.KwSwitch)) return ParseSwitch();
             if (Check(TokenType.KwDo)) return ParseDoWhile();
-            if (Check(TokenType.KwInt) || Check(TokenType.KwVoid) || Check(TokenType.KwBool) || Check(TokenType.KwStruct))
+            if (Check(TokenType.KwInt) || Check(TokenType.KwVoid) || Check(TokenType.KwBool) ||
+                Check(TokenType.KwByte) || Check(TokenType.KwStruct))
                 return ParseVarDecl();
 
             var expr = ParseExpr();
@@ -315,7 +319,7 @@ namespace CompMacro11
             StmtNode init = null;
             if (!Check(TokenType.Semicolon))
             {
-                if (Check(TokenType.KwInt)) init = ParseVarDecl();
+                if (Check(TokenType.KwInt) || Check(TokenType.KwByte)) init = ParseVarDecl();
                 else { var e = ParseExpr(); Expect(TokenType.Semicolon); init = new ExprStmtNode { Expr = e }; }
             }
             else Expect(TokenType.Semicolon);
@@ -348,7 +352,7 @@ namespace CompMacro11
             do
             {
                 // Для каждой переменной в списке — копируем базовый тип
-                var vt = new MiniCType { IsVoid = t.IsVoid, IsBool = t.IsBool, IsStruct = t.IsStruct, StructName = t.StructName };
+                var vt = new MiniCType { IsVoid = t.IsVoid, IsBool = t.IsBool, IsByte = t.IsByte, IsStruct = t.IsStruct, StructName = t.StructName };
                 var name = Expect(TokenType.Identifier).Value;
                 ParseArrayDims(vt, firstCanBeEmpty: false);
                 ExprNode init = null;
@@ -376,8 +380,12 @@ namespace CompMacro11
         {
             var node = new ArrayInitNode();
             node.Flat = ParseFlatInits();
-            // Дополнить нулями до полного размера
-            int total = t.TotalElements();
+            // Дополнить нулями до полного размера. Для массива структур один
+            // элемент — это все поля структуры, а не одно значение.
+            int per = 1;
+            if (t.IsStruct && t.StructName != null &&
+                _structFieldCounts.TryGetValue(t.StructName, out int fc)) per = fc;
+            int total = t.TotalElements() * per;
             while (node.Flat.Count < total) node.Flat.Add(0);
             return node;
         }

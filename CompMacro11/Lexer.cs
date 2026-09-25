@@ -9,7 +9,7 @@ namespace CompMacro11
         // Литералы и идентификаторы
         IntLiteral, Identifier, StringLiteral,
         // Типы
-        KwInt, KwVoid, KwBool,
+        KwInt, KwVoid, KwBool, KwByte,
         // Управление
         KwIf, KwElse, KwWhile, KwFor, KwReturn, KwBreak, KwContinue,
         KwSwitch, KwCase, KwDefault, KwDo, KwStruct,
@@ -50,6 +50,7 @@ namespace CompMacro11
         private static readonly Dictionary<string, TokenType> Keywords = new Dictionary<string, TokenType>
         {
             {"int",      TokenType.KwInt},   {"void",     TokenType.KwVoid},
+            {"byte",     TokenType.KwByte},
             {"bool",     TokenType.KwBool},
             {"true",     TokenType.KwTrue},  {"false",    TokenType.KwFalse},
             {"if",       TokenType.KwIf},    {"else",     TokenType.KwElse},

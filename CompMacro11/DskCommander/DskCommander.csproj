@@ -44,7 +44,12 @@
     <Compile Include="DskDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="DiskFile.cs" />
+    <Compile Include="Macro11.cs" />
+    <Compile Include="SavView.cs" />
     <Compile Include="DskImage.cs" />
+    <Compile Include="HddImage.cs" />
+    <Compile Include="ImageProbe.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

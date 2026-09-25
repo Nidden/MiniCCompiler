@@ -16,6 +16,7 @@ namespace CompMacro11
     public class LineNumPanel : Panel
     {
         private RichTextBox _rtb;
+        private Func<int> _lineCount;       // число строк из кэша Form1
         public int ErrorLine { get; set; } = -1;
 
         private static readonly Color BG = Color.FromArgb(30, 30, 30);
@@ -23,9 +24,24 @@ namespace CompMacro11
         private static readonly Color FG_ERR = Color.FromArgb(240, 100, 80);
         private static readonly Color BG_ERR = Color.FromArgb(90, 25, 25);
 
-        public LineNumPanel(RichTextBox rtb)
+        // Кисти и формат — один раз на панель, а не по три на каждую строку
+        // при каждой перерисовке.
+        private static readonly SolidBrush B_BG = new SolidBrush(BG);
+        private static readonly SolidBrush B_FG = new SolidBrush(FG);
+        private static readonly SolidBrush B_ERR_FG = new SolidBrush(FG_ERR);
+        private static readonly SolidBrush B_ERR_BG = new SolidBrush(BG_ERR);
+        private static readonly StringFormat SFMT = new StringFormat
+        {
+            Alignment = StringAlignment.Far,
+            LineAlignment = StringAlignment.Near
+        };
+
+        public LineNumPanel(RichTextBox rtb) : this(rtb, null) { }
+
+        public LineNumPanel(RichTextBox rtb, Func<int> lineCount)
         {
             _rtb = rtb;
+            _lineCount = lineCount;
             Width = 46;
             Dock = DockStyle.Left;
             BackColor = BG;
@@ -36,45 +52,43 @@ namespace CompMacro11
             _rtb.TextChanged += (s, e) => Invalidate();
         }
 
+        // Рисуем ТОЛЬКО видимые номера. Раньше обход начинался с первой
+        // строки файла и для каждой запрашивал у контрола её положение:
+        // на вставленных уровнях это тысячи запросов к Win32 на каждую
+        // перерисовку, то есть на каждое нажатие клавиши и каждый щелчок
+        // колесом. Первая видимая строка берётся одним запросом, дальше
+        // идём вниз до выхода за нижний край.
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
             var g = e.Graphics;
-            g.FillRectangle(new SolidBrush(BG), ClientRectangle);
+            g.FillRectangle(B_BG, ClientRectangle);
 
-            if (_rtb.Lines.Length == 0) return;
+            int total = _lineCount != null ? _lineCount() : _rtb.Lines.Length;
+            if (total <= 0) return;
 
             var font = _rtb.Font;
-            var sfmt = new StringFormat
-            {
-                Alignment = StringAlignment.Far,
-                LineAlignment = StringAlignment.Near
-            };
+            int first = _rtb.GetLineFromCharIndex(
+                _rtb.GetCharIndexFromPosition(new Point(1, 1)));
+            if (first < 0) first = 0;
 
-            int lineCount = _rtb.Lines.Length;
-            for (int i = 0; i < lineCount; i++)
+            for (int i = first; i < total; i++)
             {
                 int charIdx = _rtb.GetFirstCharIndexFromLine(i);
                 if (charIdx < 0) break;
                 Point pt = _rtb.GetPositionFromCharIndex(charIdx);
-
-                // Учесть что Panel смещена левее RichTextBox — Y совпадает
+                if (pt.Y > Height) break;
                 if (pt.Y + font.Height < 0) continue;
-                if (pt.Y > _rtb.Height) break;
 
                 int lineNum = i + 1;
                 bool isErr = lineNum == ErrorLine;
 
                 if (isErr)
-                    g.FillRectangle(new SolidBrush(BG_ERR),
-                        0, pt.Y, Width, font.Height + 1);
+                    g.FillRectangle(B_ERR_BG, 0, pt.Y, Width, font.Height + 1);
 
                 var rc = new RectangleF(0, pt.Y, Width - 4, font.Height);
-                g.DrawString(lineNum.ToString(), font,
-                    new SolidBrush(isErr ? FG_ERR : FG), rc, sfmt);
+                g.DrawString(lineNum.ToString(), font, isErr ? B_ERR_FG : B_FG, rc, SFMT);
             }
-
-            sfmt.Dispose();
         }
     }
 
@@ -148,6 +162,7 @@ namespace CompMacro11
         private bool _highlighting;
         private System.Windows.Forms.Timer _hlTimer;
         private System.Windows.Forms.Timer _scrollTimer;
+        private System.Windows.Forms.Timer _outScrollTimer;
         private SpriteEditor _spriteEditor;
         private ToolTip _toolTip = new ToolTip();
         private LevelEditor _levelEditor;
@@ -467,6 +482,7 @@ namespace CompMacro11
             _hlTimer.Tick += (_, __) => { _hlTimer.Stop(); Highlight(); };
             _src.TextChanged += (_, __) =>
             {
+                InvalidateSrcCache();      // первым: остальные обработчики читают кэш
                 if (!_highlighting) { _hlTimer.Stop(); _hlTimer.Start(); }
                 if (!_suppressDirty) MarkProjectDirty();
             };
@@ -475,7 +491,7 @@ namespace CompMacro11
             _scrollTimer.Tick += (_, __) => { _scrollTimer.Stop(); Highlight(); };
             _src.VScroll += (_, __) => { if (!_highlighting) { _scrollTimer.Stop(); _scrollTimer.Start(); } };
 
-            _linePanel = new LineNumPanel(_src);
+            _linePanel = new LineNumPanel(_src, SrcLineCount);
 
             // Контейнер: Panel слева (номера) + RichTextBox справа
             var leftContainer = new Panel { Dock = DockStyle.Fill };
@@ -493,6 +509,15 @@ namespace CompMacro11
                 ScrollBars = RichTextBoxScrollBars.Both,
                 WordWrap = false,
                 ReadOnly = false
+            };
+            // Листинг красится по видимому окну, поэтому при прокрутке его
+            // нужно перекрашивать — как и редактор (дебаунс 60мс).
+            _outScrollTimer = new System.Windows.Forms.Timer { Interval = 60 };
+            _outScrollTimer.Tick += (_, __) => { _outScrollTimer.Stop(); ColorizeAsm(); };
+            _out.TextChanged += (_, __) => { _outCacheDirty = true; };
+            _out.VScroll += (_, __) =>
+            {
+                if (!_colorizingAsm) { _outScrollTimer.Stop(); _outScrollTimer.Start(); }
             };
 
             split.Panel1.Controls.Add(leftContainer);
@@ -557,17 +582,112 @@ namespace CompMacro11
             UpdateStatusBar();
         }
 
-        // Обновляет нижний статусбар: позиция курсора, число строк/символов.
+        // ── Кэш текста редактора ──────────────────────────────────
+        //   RichTextBox.Text копирует весь документ, а .Lines вдобавок
+        //   режет его на массив строк. На вставленных уровнях это сотни
+        //   килобайт и тысячи строк — а вызывалось это на каждое нажатие
+        //   клавиши, на каждое движение каретки, на каждую перерисовку
+        //   номеров строк и на каждый спан подсветки. Отсюда и тормоза.
+        //
+        //   Теперь текст забирается из контрола ОДИН раз после изменения,
+        //   вместе с ним считаются начала строк. Номер строки по смещению —
+        //   двоичный поиск, длина строки — вычитание, символ по индексу —
+        //   обращение к строке в памяти. Обращений к контролу не остаётся.
+        private string _srcCache = "";
+        private int[] _srcLineStarts = new int[] { 0 };
+        private bool _srcCacheDirty = true;
+
+        private void InvalidateSrcCache() { _srcCacheDirty = true; }
+
+        private void EnsureSrcCache()
+        {
+            if (!_srcCacheDirty || _src == null) return;
+            _srcCache = _src.Text;                 // в RichTextBox перевод строки — '\n'
+            var starts = new System.Collections.Generic.List<int>(_srcCache.Length / 24 + 8);
+            starts.Add(0);
+            for (int i = 0; i < _srcCache.Length; i++)
+                if (_srcCache[i] == '\n') starts.Add(i + 1);
+            _srcLineStarts = starts.ToArray();
+            _srcCacheDirty = false;
+        }
+
+        private string SrcText() { EnsureSrcCache(); return _srcCache; }
+
+        private int SrcLineCount() { EnsureSrcCache(); return _srcLineStarts.Length; }
+
+        private int SrcLineStart(int line)
+        {
+            EnsureSrcCache();
+            if (line < 0) line = 0;
+            if (line >= _srcLineStarts.Length) line = _srcLineStarts.Length - 1;
+            return _srcLineStarts[line];
+        }
+
+        private int SrcLineLength(int line)
+        {
+            EnsureSrcCache();
+            if (line < 0 || line >= _srcLineStarts.Length) return 0;
+            int s = _srcLineStarts[line];
+            int e = (line + 1 < _srcLineStarts.Length) ? _srcLineStarts[line + 1] - 1 : _srcCache.Length;
+            return e > s ? e - s : 0;
+        }
+
+        // То же, что _src.Lines[line], но без разрезания всего документа.
+        private string SrcLine(int line)
+        {
+            EnsureSrcCache();
+            if (line < 0 || line >= _srcLineStarts.Length) return "";
+            return _srcCache.Substring(_srcLineStarts[line], SrcLineLength(line));
+        }
+
+        private int SrcLineOf(int charIndex)
+        {
+            EnsureSrcCache();
+            int lo = 0, hi = _srcLineStarts.Length - 1;
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                if (_srcLineStarts[mid] <= charIndex) lo = mid; else hi = mid - 1;
+            }
+            return lo;
+        }
+
+        private char SrcCharAt(int idx)
+        {
+            EnsureSrcCache();
+            return (idx >= 0 && idx < _srcCache.Length) ? _srcCache[idx] : '\0';
+        }
+
+        // Статусбар обновляется с задержкой: при быстром наборе и при
+        // протаскивании выделения событие приходит на каждый символ, а
+        // число строк требует пересчёта кэша. 90мс хватает, чтобы цифры
+        // выглядели живыми, и хватает, чтобы не считать их зря.
+        private System.Windows.Forms.Timer _statusTimer;
+
         private void UpdateStatusBar()
         {
             if (_statusPos == null || _src == null) return;
+            if (_highlighting) return;
+            if (_statusTimer == null)
+            {
+                _statusTimer = new System.Windows.Forms.Timer { Interval = 90 };
+                _statusTimer.Tick += (_, __) => { _statusTimer.Stop(); UpdateStatusBarNow(); };
+            }
+            _statusTimer.Stop();
+            _statusTimer.Start();
+        }
+
+        // Обновляет нижний статусбар: позиция курсора, число строк/символов.
+        private void UpdateStatusBarNow()
+        {
+            if (_statusPos == null || _src == null) return;
+            // Подсветка двигает выделение сотни раз за проход — считать
+            // позицию на каждый спан незачем.
+            if (_highlighting) return;
             int idx = _src.SelectionStart;
-            int line = _src.GetLineFromCharIndex(idx);
-            int lineStart = _src.GetFirstCharIndexFromLine(line);
-            int col = idx - lineStart;
-            int totalLines = _src.Lines.Length;
-            int totalChars = _src.TextLength;
-            _statusPos.Text = $"Стр {line + 1}, Кол {col + 1}   |   {totalLines} стр   |   {totalChars} симв";
+            int line = SrcLineOf(idx);
+            int col = idx - SrcLineStart(line);
+            _statusPos.Text = $"Стр {line + 1}, Кол {col + 1}   |   {SrcLineCount()} стр   |   {_srcCache.Length} симв";
         }
 
         // Показывает сообщение в нижнем статусбаре (например, размер .mac после компиляции).
@@ -1012,7 +1132,7 @@ namespace CompMacro11
                 int col = caret - ls;
                 if (col > 0 && col % 4 == 0)
                 {
-                    string line = _src.Lines.Length > 0 ? _src.Lines[_src.GetLineFromCharIndex(ls)] : "";
+                    string line = SrcLine(SrcLineOf(ls));
                     bool onlySpaces = true;
                     for (int k = 0; k < col && k < line.Length; k++)
                         if (line[k] != ' ') { onlySpaces = false; break; }
@@ -1029,7 +1149,7 @@ namespace CompMacro11
             // Over-type: если печатаем закрывающую скобку/кавычку, а она уже есть справа — перешагнуть
             if (!e.Control && !e.Alt && _src.SelectionLength == 0 && _src.SelectionStart < _src.TextLength)
             {
-                char nextCh = _src.Text[_src.SelectionStart];
+                char nextCh = SrcCharAt(_src.SelectionStart);
                 char typed = '\0';
                 if (e.KeyCode == Keys.OemCloseBrackets && e.Shift) typed = '}';
                 else if (e.KeyCode == Keys.OemCloseBrackets && !e.Shift) typed = ']';
@@ -1093,8 +1213,8 @@ namespace CompMacro11
         {
             if (_src.SelectionLength > 0) { IndentBlock(false); return; }
             int lineStart = _src.GetFirstCharIndexOfCurrentLine();
-            int lineIdx = _src.GetLineFromCharIndex(lineStart);
-            string line = lineIdx < _src.Lines.Length ? _src.Lines[lineIdx] : "";
+            int lineIdx = SrcLineOf(lineStart);
+            string line = SrcLine(lineIdx);
             int remove = 0;
             while (remove < 4 && remove < line.Length && line[remove] == ' ') remove++;
             if (remove > 0)
@@ -1110,8 +1230,12 @@ namespace CompMacro11
         {
             int selStart = _src.SelectionStart;
             int selEnd = selStart + _src.SelectionLength;
-            int first = _src.GetLineFromCharIndex(selStart);
-            int last = _src.GetLineFromCharIndex(selEnd);
+            int first = SrcLineOf(selStart);
+            int last = SrcLineOf(selEnd);
+            // Строки читаем ДО правок: каждая правка сбрасывает кэш, и
+            // чтение внутри цикла заново забирало бы весь документ.
+            var srcLines = new string[last - first + 1];
+            for (int i = first; i <= last; i++) srcLines[i - first] = SrcLine(i);
             BeginRtbUpdate(_src);
             for (int i = last; i >= first; i--)
             {
@@ -1124,7 +1248,7 @@ namespace CompMacro11
                 }
                 else
                 {
-                    string line = _src.Lines[i];
+                    string line = srcLines[i - first];
                     int rem = 0;
                     while (rem < 4 && rem < line.Length && line[rem] == ' ') rem++;
                     if (rem > 0) { _src.Select(ls, rem); _src.SelectedText = ""; }
@@ -1132,7 +1256,7 @@ namespace CompMacro11
             }
             int newFirst = _src.GetFirstCharIndexFromLine(first);
             int newLast = _src.GetFirstCharIndexFromLine(last);
-            int lastLen = (last < _src.Lines.Length) ? _src.Lines[last].Length : 0;
+            int lastLen = SrcLineLength(last);       // текст уже правленый — одно чтение кэша
             _src.Select(newFirst, (newLast + lastLen) - newFirst);
             EndRtbUpdate(_src);
             Highlight();
@@ -1142,8 +1266,8 @@ namespace CompMacro11
         private void AutoIndentNewline()
         {
             int lineStart = _src.GetFirstCharIndexOfCurrentLine();
-            int lineIdx = _src.GetLineFromCharIndex(lineStart);
-            string line = lineIdx < _src.Lines.Length ? _src.Lines[lineIdx] : "";
+            int lineIdx = SrcLineOf(lineStart);
+            string line = SrcLine(lineIdx);
 
             int indent = 0;
             while (indent < line.Length && line[indent] == ' ') indent++;
@@ -1154,7 +1278,7 @@ namespace CompMacro11
             bool afterOpen = trimmedBefore.EndsWith("{");
 
             // Если курсор между { и } — раскрыть блок
-            bool betweenBraces = afterOpen && caret < _src.TextLength && _src.Text[caret] == '}';
+            bool betweenBraces = afterOpen && SrcCharAt(caret) == '}';
 
             if (betweenBraces)
             {
@@ -1198,14 +1322,18 @@ namespace CompMacro11
         {
             int selStart = _src.SelectionStart;
             int selEnd = selStart + _src.SelectionLength;
-            int first = _src.GetLineFromCharIndex(selStart);
-            int last = _src.GetLineFromCharIndex(selEnd);
+            int first = SrcLineOf(selStart);
+            int last = SrcLineOf(selEnd);
+
+            // Строки — один раз до правок (правка сбрасывает кэш текста)
+            var srcLines = new string[last - first + 1];
+            for (int i = first; i <= last; i++) srcLines[i - first] = SrcLine(i);
 
             // Решаем: добавлять или убирать (если ВСЕ строки закомментированы — убираем)
             bool allCommented = true;
-            for (int i = first; i <= last; i++)
+            for (int i = 0; i < srcLines.Length; i++)
             {
-                string l = _src.Lines[i].TrimStart();
+                string l = srcLines[i].TrimStart();
                 if (l.Length > 0 && !l.StartsWith("//")) { allCommented = false; break; }
             }
 
@@ -1214,7 +1342,7 @@ namespace CompMacro11
             {
                 int ls = _src.GetFirstCharIndexFromLine(i);
                 if (ls < 0) continue;
-                string line = _src.Lines[i];
+                string line = srcLines[i - first];
                 if (allCommented)
                 {
                     int p = line.IndexOf("//");
@@ -1242,9 +1370,9 @@ namespace CompMacro11
         private void MoveLine(int dir)
         {
             int caret = _src.SelectionStart;
-            int idx = _src.GetLineFromCharIndex(caret);
-            int colInLine = caret - _src.GetFirstCharIndexFromLine(idx);
-            var lines = new System.Collections.Generic.List<string>(_src.Lines);
+            int idx = SrcLineOf(caret);
+            int colInLine = caret - SrcLineStart(idx);
+            var lines = new System.Collections.Generic.List<string>(SrcText().Split('\n'));
             int target = idx + dir;
             if (target < 0 || target >= lines.Count) return;
 
@@ -1264,11 +1392,11 @@ namespace CompMacro11
         private void DuplicateLine()
         {
             int selStart = _src.SelectionStart;
-            int lineIdx = _src.GetLineFromCharIndex(selStart);
-            if (lineIdx < 0 || lineIdx >= _src.Lines.Length) return;
+            int lineIdx = SrcLineOf(selStart);
+            if (lineIdx < 0 || lineIdx >= SrcLineCount()) return;
 
-            string line = _src.Lines[lineIdx];
-            int lineEnd = _src.GetFirstCharIndexFromLine(lineIdx) + line.Length;
+            string line = SrcLine(lineIdx);
+            int lineEnd = SrcLineStart(lineIdx) + line.Length;
 
             // Вставить перенос строки + копию после текущей строки
             _src.SelectionStart = lineEnd;
@@ -1291,6 +1419,15 @@ namespace CompMacro11
                 _levelEditor = new LevelEditor(code =>
                 {
                     string text = _src.Text;
+                    // Предыдущая вставка целиком — от метки начала до метки
+                    // конца: данные уровней, currentLevel и getLevel(). Иначе
+                    // повторное «→ В код» дало бы второй экземпляр тех же
+                    // структур и повторное определение функции.
+                    text = Regex.Replace(text,
+                        Regex.Escape(LevelEditor.MarkBegin) + ".*?" +
+                        Regex.Escape(LevelEditor.MarkEnd) + "[^\r\n]*\r?\n?",
+                        "", RegexOptions.Singleline);
+                    // Старый вид вставки — только шапка с // level: имя.
                     var startMatch = Regex.Match(text,
                         @"// ── Уровень[^\n]*\n(// [^\n]*\n)*");
                     if (startMatch.Success)
@@ -1383,7 +1520,7 @@ namespace CompMacro11
             _out.ForeColor = C_TEXT;
             _out.Clear();
 
-            string src = _src.Text;
+            string src = SrcText();
             AppEnvironment.LastCode = src;
             if (string.IsNullOrWhiteSpace(src))
             {
@@ -1437,10 +1574,10 @@ namespace CompMacro11
                     _linePanel.Invalidate();
 
                     int idx = _src.GetFirstCharIndexFromLine(userLine - 1);
-                    if (idx >= 0 && userLine - 1 < _src.Lines.Length)
+                    if (idx >= 0 && userLine - 1 < SrcLineCount())
                     {
                         _src.SelectionStart = idx;
-                        _src.SelectionLength = _src.Lines[userLine - 1].Length;
+                        _src.SelectionLength = SrcLineLength(userLine - 1);
                         _src.SelectionBackColor = Color.FromArgb(90, 25, 25);
                         _src.SelectionLength = 0;
                         _src.ScrollToCaret();
@@ -1777,30 +1914,27 @@ namespace CompMacro11
 
             // ── Виртуализация: подсвечиваем только ВИДИМЫЕ строки + запас ──
             // Нагрузка перестаёт зависеть от размера файла.
+            EnsureSrcCache();
             int topCharIdx = _src.GetCharIndexFromPosition(new System.Drawing.Point(1, 1));
             int botCharIdx = _src.GetCharIndexFromPosition(
                 new System.Drawing.Point(1, Math.Max(1, _src.ClientSize.Height - 2)));
-            int firstLine = _src.GetLineFromCharIndex(topCharIdx);
-            int lastLine = _src.GetLineFromCharIndex(botCharIdx);
-            int totalLines = _src.Lines.Length;
-            const int MARGIN = 40;                       // запас строк сверху/снизу
+            int firstLine = SrcLineOf(topCharIdx);
+            int lastLine = SrcLineOf(botCharIdx);
+            int totalLines = SrcLineCount();
+            const int MARGIN = 12;                       // запас строк сверху/снизу
             firstLine = Math.Max(0, firstLine - MARGIN);
             lastLine = Math.Min(Math.Max(0, totalLines - 1), lastLine + MARGIN);
 
-            int winStart = _src.GetFirstCharIndexFromLine(firstLine);
-            if (winStart < 0) winStart = 0;
-            int lastLineStart = _src.GetFirstCharIndexFromLine(lastLine);
-            int winEnd = (lastLineStart < 0)
-                ? _src.TextLength
-                : lastLineStart + (lastLine < totalLines ? _src.Lines[lastLine].Length : 0);
-            if (winEnd > _src.TextLength) winEnd = _src.TextLength;
+            int winStart = SrcLineStart(firstLine);
+            int winEnd = SrcLineStart(lastLine) + SrcLineLength(lastLine);
+            if (winEnd > _srcCache.Length) winEnd = _srcCache.Length;
             int winLen = winEnd - winStart;
             if (winLen <= 0) { _highlighting = false; return; }
 
             BeginRtbUpdate(_src);
 
-            // Берём ТОЛЬКО видимое окно, а не весь _src.Text
-            string text = _src.Text.Substring(winStart, winLen);
+            // Берём ТОЛЬКО видимое окно, и из кэша — контрол не трогаем
+            string text = _srcCache.Substring(winStart, winLen);
             int n = text.Length;
             var spans = new System.Collections.Generic.List<(int s, int l, Color c)>(256);
 
@@ -1847,13 +1981,39 @@ namespace CompMacro11
                 i++;
             }
 
+            // Склейка соседних спанов одного цвета через запятые и пробелы:
+            // строка данных уровня из десяти чисел — это один спан вместо
+            // десяти, а каждый спан стоит двух обращений к контролу.
+            var merged = new System.Collections.Generic.List<(int s, int l, Color c)>(spans.Count);
+            foreach (var sp in spans)
+            {
+                if (merged.Count > 0)
+                {
+                    var last = merged[merged.Count - 1];
+                    int gapStart = last.s + last.l;
+                    int gapLen = sp.s - gapStart;
+                    if (last.c == sp.c && gapLen >= 0 && gapLen <= 2)
+                    {
+                        bool joinable = true;
+                        for (int q = gapStart; q < sp.s; q++)
+                            if (text[q] != ',' && text[q] != ' ' && text[q] != '\t') { joinable = false; break; }
+                        if (joinable)
+                        {
+                            merged[merged.Count - 1] = (last.s, sp.s + sp.l - last.s, last.c);
+                            continue;
+                        }
+                    }
+                }
+                merged.Add(sp);
+            }
+            spans = merged;
+
             // Сброс цвета только в видимом окне, затем спаны (смещены на winStart)
             _src.Select(winStart, winLen);
             _src.SelectionColor = C_TEXT;
             foreach (var (s, l, c) in spans)
             {
-                _src.SelectionStart = winStart + s;
-                _src.SelectionLength = l;
+                _src.Select(winStart + s, l);   // одним сообщением вместо двух
                 _src.SelectionColor = c;
             }
 
@@ -1887,42 +2047,101 @@ namespace CompMacro11
             "\\.EVEN","\\.MACRO","\\.ENDM","\\.MCall"
         };
 
+        // ── Кэш и подсветка ассемблерной панели ───────────────────
+        //   Раньше красился ВЕСЬ листинг: сорок проходов регулярками по
+        //   всему тексту и по три обращения к контролу на каждое
+        //   совпадение. На программе с уровнями листинг — тысячи строк
+        //   .BYTE/.WORD, и компиляция вставала намертво. Теперь, как и в
+        //   редакторе, красится только видимое окно, а при прокрутке
+        //   перекрашивается заново.
+        private string _outCache = "";
+        private int[] _outLineStarts = new int[] { 0 };
+        private bool _outCacheDirty = true;
+        private bool _colorizingAsm;
+
+        private void EnsureOutCache()
+        {
+            if (!_outCacheDirty || _out == null) return;
+            _outCache = _out.Text;
+            var starts = new System.Collections.Generic.List<int>(_outCache.Length / 24 + 8);
+            starts.Add(0);
+            for (int i = 0; i < _outCache.Length; i++)
+                if (_outCache[i] == '\n') starts.Add(i + 1);
+            _outLineStarts = starts.ToArray();
+            _outCacheDirty = false;
+        }
+
+        private int OutLineOf(int charIndex)
+        {
+            EnsureOutCache();
+            int lo = 0, hi = _outLineStarts.Length - 1;
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                if (_outLineStarts[mid] <= charIndex) lo = mid; else hi = mid - 1;
+            }
+            return lo;
+        }
+
         private void ColorizeAsm()
         {
-            _out.SuspendLayout();
-            BeginRtbUpdate(_out);
+            if (_colorizingAsm || _out == null) return;
+            _colorizingAsm = true;
+            EnsureOutCache();
 
-            _out.SelectAll();
+            int sel = _out.SelectionStart;
+            var scrollPos = GetRtbScroll(_out);
+
+            int topIdx = _out.GetCharIndexFromPosition(new System.Drawing.Point(1, 1));
+            int botIdx = _out.GetCharIndexFromPosition(
+                new System.Drawing.Point(1, Math.Max(1, _out.ClientSize.Height - 2)));
+            int firstLine = OutLineOf(topIdx);
+            int lastLine = OutLineOf(botIdx);
+            const int MARGIN = 12;
+            firstLine = Math.Max(0, firstLine - MARGIN);
+            lastLine = Math.Min(_outLineStarts.Length - 1, lastLine + MARGIN);
+
+            int winStart = _outLineStarts[firstLine];
+            int winEnd = (lastLine + 1 < _outLineStarts.Length)
+                ? _outLineStarts[lastLine + 1] - 1
+                : _outCache.Length;
+            if (winEnd > _outCache.Length) winEnd = _outCache.Length;
+            int winLen = winEnd - winStart;
+            if (winLen <= 0) { _colorizingAsm = false; return; }
+
+            string text = _outCache.Substring(winStart, winLen);
+
+            BeginRtbUpdate(_out);
+            _out.Select(winStart, winLen);
             _out.SelectionColor = C_TEXT;
-            string text = _out.Text;
 
             foreach (var d in AsmDir)
                 foreach (Match m in Regex.Matches(text, d, RegexOptions.IgnoreCase))
-                    PaintOut(m.Index, m.Length, C_TYPE);
+                    PaintOut(winStart + m.Index, m.Length, C_TYPE);
             foreach (var op in AsmOps)
                 foreach (Match m in Regex.Matches(text, $@"\b{op}\b"))
-                    PaintOut(m.Index, m.Length, C_KEYWORD);
+                    PaintOut(winStart + m.Index, m.Length, C_KEYWORD);
             foreach (Match m in Regex.Matches(text, @"^[A-Z][A-Z0-9]{0,5}:", RegexOptions.Multiline))
-                PaintOut(m.Index, m.Length, C_OK);
+                PaintOut(winStart + m.Index, m.Length, C_OK);
             foreach (Match m in Regex.Matches(text, @"#-?\d+\."))
-                PaintOut(m.Index, m.Length, C_NUMBER);
+                PaintOut(winStart + m.Index, m.Length, C_NUMBER);
             foreach (Match m in Regex.Matches(text, @";[^\n]*"))
-                PaintOut(m.Index, m.Length, C_COMMENT);
+                PaintOut(winStart + m.Index, m.Length, C_COMMENT);
             foreach (Match m in Regex.Matches(text, @"\b(R[0-7]|SP|PC)\b"))
-                PaintOut(m.Index, m.Length, C_TYPE);
+                PaintOut(winStart + m.Index, m.Length, C_TYPE);
 
-            _out.SelectionStart = 0;
+            _out.SelectionStart = Math.Min(sel, _out.TextLength);
             _out.SelectionLength = 0;
             _out.SelectionColor = C_TEXT;
 
+            SetRtbScroll(_out, scrollPos);
             EndRtbUpdate(_out);
-            _out.ResumeLayout();
+            _colorizingAsm = false;
         }
 
         private void PaintOut(int start, int len, Color color)
         {
-            _out.SelectionStart = start;
-            _out.SelectionLength = len;
+            _out.Select(start, len);
             _out.SelectionColor = color;
         }
 
@@ -2288,11 +2507,11 @@ int main(void) {
             try
             {
                 int line = Math.Max(0, _project.CursorLine - 1);
-                if (line >= _src.Lines.Length) line = Math.Max(0, _src.Lines.Length - 1);
+                if (line >= SrcLineCount()) line = Math.Max(0, SrcLineCount() - 1);
                 int start = _src.GetFirstCharIndexFromLine(line);
                 if (start < 0) start = 0;
                 int col = Math.Max(0, _project.CursorCol - 1);
-                if (line < _src.Lines.Length) col = Math.Min(col, _src.Lines[line].Length);
+                col = Math.Min(col, SrcLineLength(line));
                 _src.SelectionStart = Math.Min(start + col, _src.TextLength);
                 _src.SelectionLength = 0;
                 _src.ScrollToCaret();
