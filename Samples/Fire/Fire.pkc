@@ -1,0 +1,16 @@
+{
+  "Name": "Fire",
+  "Version": "1.0",
+  "Created": "2026-06-30 15:00:00",
+  "Modified": "2026-06-30 15:00:00",
+  "MainFile": "main.mc",
+  "CursorLine": 1,
+  "CursorCol": 1,
+  "Settings": {
+    "TargetPlatform": "UKNC",
+    "ScreenMode": 1,
+    "OptimizeLabels": true
+  },
+  "Files": ["main.mc"],
+  "Sprites": []
+}
